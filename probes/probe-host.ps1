@@ -41,6 +41,15 @@ if (-not $Runtime) { $Runtime = Resolve-SbxRuntime }   # param defaults run befo
 
 $TAG      = 'sbx-cheavy-probe'
 $ExecPath = (Resolve-Path "$PSScriptRoot/sbx-sync-exec.ps1").Path
+# How the forced command invokes pwsh. On Windows bare `pwsh` resolves via
+# sshd's PATH (and the abs path "C:\Program Files\PowerShell\..." has a space
+# that would need re-quoting). On macOS sshd runs the command through the login
+# shell with a MINIMAL PATH, so pwsh (Homebrew: /opt/homebrew/bin, /usr/local/bin)
+# usually isn't found — use its absolute, space-free path there.
+$PwshInvoke = if ($IsWindows) { 'pwsh' } else {
+    $p = (Get-Command pwsh -ErrorAction SilentlyContinue).Source
+    if ($p) { $p } else { 'pwsh' }
+}
 $results  = [System.Collections.Generic.List[object]]::new()
 function Add-Result { param($Probe, $Pass, $Detail)
     $results.Add([pscustomobject]@{ Probe = $Probe; Result = $(if ($Pass) {'PASS'} else {'FAIL'}); Detail = $Detail })
@@ -119,7 +128,7 @@ function Install-AuthorizedKey {
     # + escape for paths that can contain spaces.)
     $exec = ($ExecPath -replace '\\', '/')
     $ws   = ($Art.Ws   -replace '\\', '/')
-    $line = "restrict,command=`"pwsh -NoProfile -File $exec -WorkspaceDir $ws`" $pub"
+    $line = "restrict,command=`"$PwshInvoke -NoProfile -File $exec -WorkspaceDir $ws`" $pub"
     $dir = Split-Path -Parent $Target.Path
     if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force $dir | Out-Null }
     # Newline safety: if the file doesn't end in a newline, Add-Content would
@@ -236,6 +245,15 @@ function Show-SshdAuthLog {
     # On a publickey rejection, sshd almost always logged WHY. Surface it so we
     # can tell StrictModes/ACL ("bad ownership or modes") from a parse problem
     # ("key_read"/"error parsing") from a plain no-match.
+    if ($IsMacOS) {
+        Write-Host "  --- recent sshd log (macOS unified log) ---" -ForegroundColor DarkGray
+        try {
+            $lines = & log show --style compact --last 5m --predicate 'process == "sshd"' 2>$null
+            @($lines | Where-Object { $_ -match 'refus|publickey|Accepted|Failed|authoriz|modes' } | Select-Object -Last 6) |
+                ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray }
+        } catch { Write-Host "  (couldn't read the unified log: $($_.Exception.Message))" -ForegroundColor DarkGray }
+        return
+    }
     if (-not $IsWindows) {
         Write-Host "  check the sshd log for the reason (e.g. journalctl -u ssh / /var/log/auth.log)" -ForegroundColor DarkGray
         return
@@ -273,6 +291,11 @@ if ($IsWindows) {
     if (-not $svc)                       { Write-Host "  WARN: no 'sshd' service — install Win32-OpenSSH (runbook)" -ForegroundColor Yellow }
     elseif ($svc.Status -ne 'Running')   { Write-Host "  WARN: sshd service is $($svc.Status), not Running" -ForegroundColor Yellow }
     else                                 { Write-Host "  sshd service: Running" -ForegroundColor DarkGray }
+}
+elseif ($IsMacOS) {
+    Write-Host "  macOS host: ensure Remote Login is ON (System Settings > General > Sharing)." -ForegroundColor DarkGray
+    Write-Host "  P6 reminder: grant the container runtime (OrbStack) the Local Network permission, else every host/LAN connection from the container SILENTLY TIMES OUT and looks like an SSH failure." -ForegroundColor Yellow
+    Write-Host "  forced command will invoke: $PwshInvoke" -ForegroundColor DarkGray
 }
 if (Test-LocalPort -Port $Port) { Write-Host "  sshd is listening on 127.0.0.1:$Port (host-local)" -ForegroundColor DarkGray }
 else { Write-Host "  WARN: nothing answering on 127.0.0.1:$Port — start sshd before expecting reachability" -ForegroundColor Yellow }

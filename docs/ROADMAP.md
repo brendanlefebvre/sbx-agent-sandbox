@@ -25,10 +25,15 @@ transport is viable; build it. Notes for the build: host-address auto-discovery
 is unreliable (let the user pin it; prefer the WSL gateway over Tailscale);
 appends to authorized_keys must be newline-safe and must snapshot/restore
 verbatim (both bit us — P7); don't create `administrators_authorized_keys` where
-it's absent. Still to run: the LAN-exposure check (second-device, probe #4).
-Remaining build surface: container-side caller (`GIT_SSH_COMMAND`/`sbx sync`
-inside the container), `sbx sync-setup` key provisioning, host sshd setup guide,
-concurrency for simultaneous pushes.
+it's absent. LAN-exposure (probe #4) checked, resolved-with-nuance: host sshd is
+LAN-reachable, but that's pre-existing (the owner already runs sshd) and c-heavy
+doesn't widen it — the dedicated key stays forced-command-bounded regardless of
+who reaches the port (FINDINGS P7). macOS: `probe-host.ps1` is cross-platform and
+mac-hardened (abs pwsh path in the forced command, Remote Login + Local-Network
+reminders, `log show` diagnostics) — run the same script on the Mac to probe the
+OrbStack->mac-sshd path. Remaining build surface: container-side caller
+(`GIT_SSH_COMMAND`/`sbx sync` inside the container), `sbx sync-setup` key
+provisioning, host sshd setup guide, concurrency for simultaneous pushes.
 
 ### 2. Agent-status, authoritative half (hooks)
 `sbx-agent-status.sh` is the liveness *cross-check*; the authoritative

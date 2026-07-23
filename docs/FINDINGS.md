@@ -528,7 +528,18 @@ it takes precedence for admins and can lock out normal logins.
    bytes (+ a `.bak` sidecar) before writing and restore verbatim. Never
    line-edit a file that may hold real keys.
 
-**Still open (manual, not yet run):** the LAN-exposure check (probe #4) — from a
-*second* LAN device, confirm host sshd is unreachable while the container path
-works. The `192.168.1.x` refusal from the container is suggestive but not the
-same test.
+**LAN exposure (probe #4) — resolved with nuance, not a blocker.** Checked
+2026-07-23: the Windows host's sshd IS reachable from a second LAN device (the
+Mac) at its `192.168` address. That is fine *for this deployment*, because the
+host already runs sshd for the owner's own use — c-heavy does not introduce the
+listening server or its LAN exposure, it rides on the existing one. The
+roadmap's "firewall sshd away from the LAN" concern applies to the different
+case where sshd is stood up *solely* for the callback. What matters is that
+c-heavy does not WIDEN exposure: the dedicated key is `restrict,command=`-pinned,
+so reaching the port with that key yields only the three git verbs on workspace
+repos — no shell, no forwarding — regardless of who can reach it. So probe #4's
+real question is "does c-heavy widen exposure beyond the existing sshd?" →
+**no**, not "is sshd unreachable from the LAN" (which contradicts the owner
+already using it). Separate, pre-existing hygiene item (independent of c-heavy):
+a `Failed password` line in the log suggests `PasswordAuthentication` may be on;
+a LAN-reachable sshd should prefer key-only auth.
