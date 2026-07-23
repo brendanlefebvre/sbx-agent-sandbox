@@ -15,6 +15,12 @@ Windows probes required first: host reachability from inside a wslc container,
 Win32-OpenSSH `administrators_authorized_keys` quirk, binding/firewalling sshd
 away from the LAN. **(d) agent-socket forwarding stays demoted** — it grants the
 keys' full authority and is strictly wider than the callback.
+**Probe kit (probe-first pass, not yet run on a host):** `probes/` holds the
+validator prototype `sbx-sync-exec.ps1` (+ unit tests, green off-host) and the
+host harness `probe-host.ps1`; runbook + go/no-go ordering in
+`docs/probes/c-heavy-sync-probes.md`. Results land in FINDINGS as P7. The full
+build (container-side caller, `sbx sync-setup` key provisioning, host sshd setup,
+concurrency) is gated on these probes passing.
 
 ### 2. Agent-status, authoritative half (hooks)
 `sbx-agent-status.sh` is the liveness *cross-check*; the authoritative
