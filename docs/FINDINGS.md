@@ -483,3 +483,52 @@ of ~10 prior mounts from probes/rebuilds that session — all succeeded with no
 volume-mount ceiling" above) is gone in 2.9.4.0, matching the error message's
 "will be fixed in a future release" promise. The WSL-service-restart
 workaround is no longer needed; the earlier section is retained as history.
+
+## P7 — c-heavy sync: container→host sshd callback is viable (Windows/wslc)
+
+Probed 2026-07-23 on Windows with wslc, host sshd = Win32-OpenSSH, via
+`probes/probe-host.ps1` (see `docs/probes/c-heavy-sync-probes.md`). **Verdict:
+GO** — the SSH forced-command callback works end to end and the security
+invariants hold.
+
+Full matrix passed: reachability; dedicated key accepted + forced command
+fired; `push`/`pull`/`fetch` each ran host-side git (`Everything up-to-date`
+/ `Already up to date.` / `sbx-sync-exec: OK`); and every negative was refused
+— `clone` (verb), `push --force` (extra token), `../secret` (traversal),
+`ghost` (not in workspace), `; sh` (extra token), and `-L`/`-D` forwarding
+(killed by `restrict`).
+
+**Reachability.** The container reached host sshd over the host's **Tailscale**
+address (`100.x`); an earlier run also reached it via the **WSL vEthernet
+gateway** `172.20.240.1` (got to publickey auth). Refused/timed-out: the wslc
+bridge gateway `172.17.0.1`, the LAN IP `192.168.1.x` (refused — sshd not
+answering the container on the LAN adapter, a *good* sign for isolation), the
+router, and `host.docker.internal` (wslc does not inject it). **Auto-discovery
+of the host address is unreliable** — `/proc/net/route` yields the wslc bridge
+gw, not the host — so the build should let the user pin the address (the WSL
+gateway is the clean host-only path; prefer it over Tailscale).
+
+**Key placement.** the host account is a local Administrator, but
+`C:\ProgramData\ssh\administrators_authorized_keys` does **not exist** and
+sshd reads the per-user `~/.ssh/authorized_keys` (the existing ECDSA key there
+authenticates). So the `administrators_authorized_keys` quirk did not bite
+here — but note the auto-detector would target that (nonexistent) file for an
+admin account, so the per-user file had to be pinned with `-AuthorizedKeysFile`.
+Do NOT "fix" this by creating `administrators_authorized_keys`: once it exists
+it takes precedence for admins and can lock out normal logins.
+
+**Two harness bugs found the hard way (both fixed; relevant to the build):**
+1. **authorized_keys newline merge.** Appending our entry to a file whose last
+   line had no trailing newline MERGED it onto the prior key — the old key
+   stayed valid (longer comment), ours vanished → `Permission denied
+   (publickey)` with no obvious cause. Any code that appends to authorized_keys
+   must ensure a separating newline first.
+2. **Teardown data loss.** The first harness version rewrote authorized_keys by
+   line-filtering, which blanked a user's real key. Fixed to snapshot the exact
+   bytes (+ a `.bak` sidecar) before writing and restore verbatim. Never
+   line-edit a file that may hold real keys.
+
+**Still open (manual, not yet run):** the LAN-exposure check (probe #4) — from a
+*second* LAN device, confirm host sshd is unreachable while the container path
+works. The `192.168.1.x` refusal from the container is suggestive but not the
+same test.

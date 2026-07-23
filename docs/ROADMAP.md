@@ -15,12 +15,20 @@ Windows probes required first: host reachability from inside a wslc container,
 Win32-OpenSSH `administrators_authorized_keys` quirk, binding/firewalling sshd
 away from the LAN. **(d) agent-socket forwarding stays demoted** — it grants the
 keys' full authority and is strictly wider than the callback.
-**Probe kit (probe-first pass, not yet run on a host):** `probes/` holds the
-validator prototype `sbx-sync-exec.ps1` (+ unit tests, green off-host) and the
-host harness `probe-host.ps1`; runbook + go/no-go ordering in
-`docs/probes/c-heavy-sync-probes.md`. Results land in FINDINGS as P7. The full
-build (container-side caller, `sbx sync-setup` key provisioning, host sshd setup,
-concurrency) is gated on these probes passing.
+**Probes PASSED (2026-07-23, Windows/wslc) — GO. See FINDINGS P7.** The kit in
+`probes/` (validator prototype `sbx-sync-exec.ps1` + unit tests; host harness
+`probe-host.ps1`; runbook `docs/probes/c-heavy-sync-probes.md`) ran green end to
+end: container reached host sshd, dedicated key + forced command honored, three
+verbs ran host-side git, every negative (bad verb, extra args, traversal,
+non-workspace repo, shell, `-L`/`-D` forwarding) refused. The SSH-callback
+transport is viable; build it. Notes for the build: host-address auto-discovery
+is unreliable (let the user pin it; prefer the WSL gateway over Tailscale);
+appends to authorized_keys must be newline-safe and must snapshot/restore
+verbatim (both bit us — P7); don't create `administrators_authorized_keys` where
+it's absent. Still to run: the LAN-exposure check (second-device, probe #4).
+Remaining build surface: container-side caller (`GIT_SSH_COMMAND`/`sbx sync`
+inside the container), `sbx sync-setup` key provisioning, host sshd setup guide,
+concurrency for simultaneous pushes.
 
 ### 2. Agent-status, authoritative half (hooks)
 `sbx-agent-status.sh` is the liveness *cross-check*; the authoritative
