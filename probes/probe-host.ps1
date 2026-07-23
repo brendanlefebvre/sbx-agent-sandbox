@@ -47,8 +47,14 @@ $ExecPath = (Resolve-Path "$PSScriptRoot/sbx-sync-exec.ps1").Path
 # shell with a MINIMAL PATH, so pwsh (Homebrew: /opt/homebrew/bin, /usr/local/bin)
 # usually isn't found — use its absolute, space-free path there.
 $PwshInvoke = if ($IsWindows) { 'pwsh' } else {
-    $p = (Get-Command pwsh -ErrorAction SilentlyContinue).Source
-    if ($p) { $p } else { 'pwsh' }
+    # Prefer the UNRESOLVED launcher (e.g. Homebrew's /opt/homebrew/bin/pwsh is an
+    # env wrapper that sets DOTNET_ROOT); the resolved Cellar apphost fails with
+    # "missing runtime" in sshd's minimal environment. Fall back to Get-Command.
+    $cand = @('/opt/homebrew/bin/pwsh', '/usr/local/bin/pwsh', '/usr/bin/pwsh') |
+            Where-Object { Test-Path $_ } | Select-Object -First 1
+    if ($cand) { $cand }
+    elseif ((Get-Command pwsh -ErrorAction SilentlyContinue).Source) { (Get-Command pwsh).Source }
+    else { 'pwsh' }
 }
 $results  = [System.Collections.Generic.List[object]]::new()
 function Add-Result { param($Probe, $Pass, $Detail)
@@ -197,7 +203,9 @@ function Get-CandidateHostAddresses {
             if ($f.Count -ge 3 -and $f[1] -eq '00000000' -and $f[2] -match '^[0-9A-Fa-f]{8}$') {
                 $g = $f[2]
                 $octets = for ($i = 6; $i -ge 0; $i -= 2) { [Convert]::ToInt32($g.Substring($i, 2), 16) }
-                if (($octets -join '.') -ne '0.0.0.0') { $cands.Add($octets -join '.') }
+                # Skip 0.x (invalid) and multicast/reserved (>=224) — malformed or
+                # non-default route rows can yield garbage like 0.250.250.200.
+                if ($octets[0] -ne 0 -and $octets[0] -lt 224) { $cands.Add($octets -join '.') }
             }
         }
         foreach ($m in [regex]::Matches($text, 'nameserver\s+(\d+\.\d+\.\d+\.\d+)')) { $cands.Add($m.Groups[1].Value) }
@@ -306,30 +314,35 @@ try {
     $art = New-ProbeArtifacts
     Install-AuthorizedKey -Art $art -Target $target
 
-    # Probe 1 — reachability: did the container reach the host sshd at all? An
-    # auth-layer response ("Permission denied", forced-command OK/REJECT) proves
-    # reachability; only "timed out"/"refused"/"could not resolve" mean no route.
-    # This is separate from whether our KEY was accepted (probe 2).
-    $sshdSeen = 'sbx-sync-exec: (OK|REJECT)|Permission denied|authentication failures|Too many authentication'
+    # Probe 1 — reachability: did the container reach the host sshd at all?
+    # Reachability = the absence of a CONNECTION-level failure. Anything past that
+    # (auth denial, or the forced command running — even erroring) proves we got
+    # to sshd. Only these mean "no route":
+    $connFail = 'connect to host|Could not resolve hostname|Connection refused|Connection timed out|Operation timed out|No route to host|Network is unreachable'
     $reachable = $null; $reachOut = $null
     foreach ($addr in (Get-CandidateHostAddresses)) {
         Write-Host "  trying host address $addr ..." -ForegroundColor DarkGray
         $r = Invoke-ContainerSsh -Addr $addr -RemoteCmd 'myrepo fetch' -Art $art
         Write-Host "    -> $(Get-LastLine $r.Output)" -ForegroundColor DarkGray
-        if ($r.Output -match $sshdSeen) { $reachable = $addr; $reachOut = $r.Output; break }
+        if ($r.Output -notmatch $connFail) { $reachable = $addr; $reachOut = $r.Output; break }
     }
     if (-not $reachable) {
-        Add-Result 'reachability' $false 'no candidate reached host sshd (routing/sshd; see per-address errors; do NOT proxy via host)'
+        Add-Result 'reachability' $false 'no candidate reached host sshd (all connection-level failures; see per-address errors; do NOT proxy via host)'
         return
     }
     Add-Result 'reachability' $true "container reached host sshd at $reachable"
 
-    # Probe 2 — auth + forced command: was our key honored and did the forced
-    # command fire? If we only got "Permission denied", the key never landed in a
-    # file this sshd reads (wrong authorized_keys file / ACL) — not a reachability
-    # problem, so stop here with that verdict rather than run a meaningless matrix.
+    # Probe 2 — auth + forced command, with the three reached-states distinguished:
+    if ($reachOut -match 'Permission denied') {
+        # Reached sshd, KEY rejected — wrong authorized_keys file/ACL/format.
+        Add-Result 'auth/forced-command' $false "reached sshd but the key was rejected (authorized_keys file/ACL/format): $(Get-LastLine $reachOut)"
+        Show-SshdAuthLog
+        return
+    }
     if ($reachOut -notmatch 'sbx-sync-exec: (OK|REJECT)') {
-        Add-Result 'auth/forced-command' $false "reached sshd but key/forced-command not honored: $(Get-LastLine $reachOut)"
+        # Key ACCEPTED (no denial) but the forced command didn't run the validator
+        # — almost always the host can't launch pwsh in sshd's minimal env.
+        Add-Result 'auth/forced-command' $false "key accepted, but the forced command didn't run the validator (host pwsh/PATH?): $(Get-LastLine $reachOut)"
         Show-SshdAuthLog
         return
     }
