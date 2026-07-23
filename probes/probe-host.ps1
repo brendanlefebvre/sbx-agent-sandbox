@@ -48,6 +48,14 @@ function Add-Result { param($Probe, $Pass, $Detail)
     Write-Host ("  [{0}] {1} — {2}" -f $results[-1].Result, $Probe, $Detail) -ForegroundColor $c
 }
 
+function Test-InAdministrators {
+    if (-not $IsWindows) { return $false }
+    $id = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $sid = [Security.Principal.SecurityIdentifier]::new(
+        [Security.Principal.WellKnownSidType]::BuiltinAdministratorsSid, $null)
+    return @($id.Groups) -contains $sid
+}
+
 function Get-AuthorizedKeysTarget {
     # Where the pubkey line must live so THIS sshd will honor it. On Windows,
     # Win32-OpenSSH ignores per-user authorized_keys for members of the local
@@ -63,9 +71,7 @@ function Get-AuthorizedKeysTarget {
         # in local Administrators, regardless of the current token's elevation.
         # IsInRole() only reports elevation, so it wrongly sends an unelevated
         # admin shell to the per-user file (which sshd then ignores).
-        $adminSid = [Security.Principal.SecurityIdentifier]::new(
-            [Security.Principal.WellKnownSidType]::BuiltinAdministratorsSid, $null)
-        $memberOfAdmins = @($id.Groups) -contains $adminSid
+        $memberOfAdmins = Test-InAdministrators
         $elevated = ([Security.Principal.WindowsPrincipal]$id).IsInRole(
             [Security.Principal.WindowsBuiltInRole]::Administrator)
         if ($memberOfAdmins) {
@@ -107,16 +113,23 @@ function Install-AuthorizedKey {
     # pinned to the validator with the throwaway workspace baked in, so the probe
     # can never touch your real ~/sbx-ws.
     $pub = (Get-Content -Raw $Art.Pub).Trim()
-    # authorized_keys command="..." escaping: inner double quotes MUST be written
-    # as \" or sshd stops parsing at the first one and silently ignores the key
-    # (symptom: "Permission denied (publickey)"). Use forward slashes in paths so
-    # no stray backslash confuses sshd's quote parser; pwsh accepts them on Windows.
-    $exec = ($ExecPath  -replace '\\', '/')
-    $ws   = ($Art.Ws    -replace '\\', '/')
-    $forced = 'pwsh -NoProfile -File \"' + $exec + '\" -WorkspaceDir \"' + $ws + '\"'
-    $line = 'restrict,command="' + $forced + '" ' + $pub
+    # Forward slashes (pwsh accepts them on Windows) and NO inner quotes: the
+    # probe's exec + temp-workspace paths contain no spaces, so we sidestep
+    # authorized_keys quote-escaping entirely. (The real build will need to quote
+    # + escape for paths that can contain spaces.)
+    $exec = ($ExecPath -replace '\\', '/')
+    $ws   = ($Art.Ws   -replace '\\', '/')
+    $line = "restrict,command=`"pwsh -NoProfile -File $exec -WorkspaceDir $ws`" $pub"
     $dir = Split-Path -Parent $Target.Path
     if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force $dir | Out-Null }
+    # Newline safety: if the file doesn't end in a newline, Add-Content would
+    # MERGE our entry onto the last existing line — the prior key stays valid with
+    # a longer comment, ours vanishes → "Permission denied (publickey)". Add a
+    # separating newline first when needed.
+    if ((Test-Path -LiteralPath $Target.Path) -and
+        ((Get-Content -Raw -LiteralPath $Target.Path) -match '[^\r\n]$')) {
+        Add-Content -Path $Target.Path -Value ''
+    }
     Add-Content -Path $Target.Path -Value $line
     Write-Host "  wrote forced-command line (tag '$TAG') to $($Target.Path)" -ForegroundColor Yellow
     if ($Target.Admin) {
