@@ -107,8 +107,14 @@ function Install-AuthorizedKey {
     # pinned to the validator with the throwaway workspace baked in, so the probe
     # can never touch your real ~/sbx-ws.
     $pub = (Get-Content -Raw $Art.Pub).Trim()
-    $forced = "pwsh -NoProfile -File `"$ExecPath`" -WorkspaceDir `"$($Art.Ws)`""
-    $line = "restrict,command=`"$forced`" $pub"
+    # authorized_keys command="..." escaping: inner double quotes MUST be written
+    # as \" or sshd stops parsing at the first one and silently ignores the key
+    # (symptom: "Permission denied (publickey)"). Use forward slashes in paths so
+    # no stray backslash confuses sshd's quote parser; pwsh accepts them on Windows.
+    $exec = ($ExecPath  -replace '\\', '/')
+    $ws   = ($Art.Ws    -replace '\\', '/')
+    $forced = 'pwsh -NoProfile -File \"' + $exec + '\" -WorkspaceDir \"' + $ws + '\"'
+    $line = 'restrict,command="' + $forced + '" ' + $pub
     $dir = Split-Path -Parent $Target.Path
     if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force $dir | Out-Null }
     Add-Content -Path $Target.Path -Value $line
@@ -126,23 +132,52 @@ function Install-AuthorizedKey {
     }
 }
 
-function Remove-AuthorizedKey {
+function Backup-AuthorizedKeys {
+    # Snapshot the file EXACTLY (content, or the fact that it didn't exist) so
+    # teardown can restore it verbatim. Never do line-surgery on a file that may
+    # hold the user's real keys — that risked wiping them.
     param([Parameter(Mandatory)]$Target)
-    if (-not (Test-Path $Target.Path)) { return }
-    $kept = Get-Content $Target.Path | Where-Object { $_ -notmatch [regex]::Escape($TAG) }
-    Set-Content -Path $Target.Path -Value $kept
+    if (Test-Path -LiteralPath $Target.Path) {
+        # Also drop a physical .bak next to it, so a HARD kill that skips `finally`
+        # still leaves the user a copy to restore from by hand.
+        $bak = "$($Target.Path).sbxprobe.bak"
+        Copy-Item -LiteralPath $Target.Path -Destination $bak -Force
+        Write-Host "  backed up your authorized_keys to $bak (removed on clean exit)" -ForegroundColor DarkGray
+        return [pscustomobject]@{ Existed = $true; Content = (Get-Content -Raw -LiteralPath $Target.Path); Bak = $bak }
+    }
+    return [pscustomobject]@{ Existed = $false; Content = $null; Bak = $null }
+}
+
+function Restore-AuthorizedKeys {
+    param([Parameter(Mandatory)]$Target, [Parameter(Mandatory)]$Backup)
+    if ($Backup.Existed) {
+        # -NoNewline: write back the captured bytes without adding/stripping a
+        # trailing newline.
+        Set-Content -LiteralPath $Target.Path -Value $Backup.Content -NoNewline
+        if ($Backup.Bak -and (Test-Path -LiteralPath $Backup.Bak)) { Remove-Item -LiteralPath $Backup.Bak -Force }
+    } elseif (Test-Path -LiteralPath $Target.Path) {
+        Remove-Item -LiteralPath $Target.Path -Force
+    }
 }
 
 function Get-CandidateHostAddresses {
     if ($Address.Count) { return $Address }
     $cands = [System.Collections.Generic.List[string]]::new()
     # Addresses as the CONTAINER sees them: default-route gateway + DNS nameserver
-    # (in WSL2 NAT these are typically the host). Emit the raw route/resolv.conf
-    # and parse host-side — no awk/`$` escaping to survive the PowerShell->bash hop.
+    # (in WSL2 NAT these are typically the host). The slim image has no `ip`, so
+    # read /proc/net/route (always present) and /etc/resolv.conf; parse host-side.
     try {
-        $raw = & $Runtime run --rm sbx:latest bash -lc 'ip route show default; echo ---; cat /etc/resolv.conf'
+        $raw = & $Runtime run --rm sbx:latest bash -lc 'cat /proc/net/route 2>/dev/null; echo ===; cat /etc/resolv.conf 2>/dev/null'
         $text = @($raw) -join "`n"
-        if ($text -match 'default via (\d+\.\d+\.\d+\.\d+)') { $cands.Add($matches[1]) }
+        foreach ($ln in ($text -split "`n")) {
+            $f = $ln -split '\s+'
+            # Default route: Destination 00000000; Gateway is little-endian hex.
+            if ($f.Count -ge 3 -and $f[1] -eq '00000000' -and $f[2] -match '^[0-9A-Fa-f]{8}$') {
+                $g = $f[2]
+                $octets = for ($i = 6; $i -ge 0; $i -= 2) { [Convert]::ToInt32($g.Substring($i, 2), 16) }
+                if (($octets -join '.') -ne '0.0.0.0') { $cands.Add($octets -join '.') }
+            }
+        }
         foreach ($m in [regex]::Matches($text, 'nameserver\s+(\d+\.\d+\.\d+\.\d+)')) { $cands.Add($m.Groups[1].Value) }
     } catch { Write-Warning "container address discovery failed: $($_.Exception.Message)" }
     # Names the runtime may inject, plus host-enumerated IPv4s.
@@ -206,27 +241,39 @@ if ($IsWindows) {
 if (Test-LocalPort -Port $Port) { Write-Host "  sshd is listening on 127.0.0.1:$Port (host-local)" -ForegroundColor DarkGray }
 else { Write-Host "  WARN: nothing answering on 127.0.0.1:$Port — start sshd before expecting reachability" -ForegroundColor Yellow }
 
+$akBackup = Backup-AuthorizedKeys -Target $target   # snapshot BEFORE any write
 $art = $null
 try {
     $art = New-ProbeArtifacts
     Install-AuthorizedKey -Art $art -Target $target
 
-    # Probe 1 — reachability: find an address the container can SSH to. Surface
-    # each candidate's error so the failure mode is legible: "Connection
-    # timed out"/"refused" = routing/sshd; "Permission denied (publickey)" =
-    # auth (wrong authorized_keys file or ACL, not a reachability problem).
-    $reachable = $null
+    # Probe 1 — reachability: did the container reach the host sshd at all? An
+    # auth-layer response ("Permission denied", forced-command OK/REJECT) proves
+    # reachability; only "timed out"/"refused"/"could not resolve" mean no route.
+    # This is separate from whether our KEY was accepted (probe 2).
+    $sshdSeen = 'sbx-sync-exec: (OK|REJECT)|Permission denied|authentication failures|Too many authentication'
+    $reachable = $null; $reachOut = $null
     foreach ($addr in (Get-CandidateHostAddresses)) {
         Write-Host "  trying host address $addr ..." -ForegroundColor DarkGray
         $r = Invoke-ContainerSsh -Addr $addr -RemoteCmd 'myrepo fetch' -Art $art
-        if ($r.Output -match 'sbx-sync-exec: (OK|REJECT)') { $reachable = $addr; break }
         Write-Host "    -> $(Get-LastLine $r.Output)" -ForegroundColor DarkGray
+        if ($r.Output -match $sshdSeen) { $reachable = $addr; $reachOut = $r.Output; break }
     }
     if (-not $reachable) {
-        Add-Result 'reachability' $false 'no candidate host address reachable from the container (see per-address errors above; do NOT proxy via host)'
+        Add-Result 'reachability' $false 'no candidate reached host sshd (routing/sshd; see per-address errors; do NOT proxy via host)'
         return
     }
-    Add-Result 'reachability' $true "container reached sshd at $reachable"
+    Add-Result 'reachability' $true "container reached host sshd at $reachable"
+
+    # Probe 2 — auth + forced command: was our key honored and did the forced
+    # command fire? If we only got "Permission denied", the key never landed in a
+    # file this sshd reads (wrong authorized_keys file / ACL) — not a reachability
+    # problem, so stop here with that verdict rather than run a meaningless matrix.
+    if ($reachOut -notmatch 'sbx-sync-exec: (OK|REJECT)') {
+        Add-Result 'auth/forced-command' $false "reached sshd but key/forced-command not honored: $(Get-LastLine $reachOut)"
+        return
+    }
+    Add-Result 'auth/forced-command' $true 'dedicated key accepted; forced command fired'
 
     # Probe 2 — forced command: positives run the op, negatives are refused.
     foreach ($op in @('push','pull','fetch')) {
@@ -253,9 +300,9 @@ finally {
     if ($KeepArtifacts) {
         Write-Host "  --KeepArtifacts: leaving temp + authorized_keys line in place (undo by hand)." -ForegroundColor Yellow
     } else {
-        Remove-AuthorizedKey -Target $target
+        if ($akBackup) { Restore-AuthorizedKeys -Target $target -Backup $akBackup }
         if ($art -and (Test-Path $art.Root)) { Remove-Item -Recurse -Force $art.Root }
-        Write-Host "  cleaned up throwaway key, authorized_keys line, and temp repo." -ForegroundColor DarkGray
+        Write-Host "  restored $($target.Path) to its pre-probe state; removed temp key + repo." -ForegroundColor DarkGray
     }
     Write-Host "`n== c-heavy probe results ==" -ForegroundColor Cyan
     $results | Format-Table -AutoSize | Out-Host
