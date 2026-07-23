@@ -484,12 +484,12 @@ volume-mount ceiling" above) is gone in 2.9.4.0, matching the error message's
 "will be fixed in a future release" promise. The WSL-service-restart
 workaround is no longer needed; the earlier section is retained as history.
 
-## P7 — c-heavy sync: container→host sshd callback is viable (Windows/wslc)
+## P7 — c-heavy sync: container→host sshd callback is viable (Windows + macOS)
 
-Probed 2026-07-23 on Windows with wslc, host sshd = Win32-OpenSSH, via
-`probes/probe-host.ps1` (see `docs/probes/c-heavy-sync-probes.md`). **Verdict:
-GO** — the SSH forced-command callback works end to end and the security
-invariants hold.
+Probed 2026-07-23 on Windows (wslc, Win32-OpenSSH) AND macOS (OrbStack, Remote
+Login), via `probes/probe-host.ps1` (see `docs/probes/c-heavy-sync-probes.md`).
+**Verdict: GO on both** — the SSH forced-command callback works end to end and
+the security invariants hold. Windows details below; macOS notes further down.
 
 Full matrix passed: reachability; dedicated key accepted + forced command
 fired; `push`/`pull`/`fetch` each ran host-side git (`Everything up-to-date`
@@ -516,6 +516,20 @@ here — but note the auto-detector would target that (nonexistent) file for an
 admin account, so the per-user file had to be pinned with `-AuthorizedKeysFile`.
 Do NOT "fix" this by creating `administrators_authorized_keys`: once it exists
 it takes precedence for admins and can lock out normal logins.
+
+**macOS (OrbStack) — also GO (2026-07-23).** Same harness (`probe-host.ps1` is
+cross-platform), same full-matrix pass. macOS-specific notes for the build:
+- Reachability is via **`host.docker.internal`** (OrbStack provides it, unlike
+  wslc). The OrbStack bridge gateway `192.168.215.1` (the mac host) *refused*
+  port 22 from the container — sshd wasn't answering on that interface — so
+  `host.docker.internal` is the path to use. Local Network permission (P6) must
+  be granted or every attempt silently times out.
+- The forced command must invoke pwsh via the **Homebrew env wrapper**
+  `/opt/homebrew/bin/pwsh`, NOT the resolved Cellar apphost
+  (`/opt/homebrew/Cellar/.../libexec/pwsh`), which fails "missing runtime" in
+  sshd's minimal environment. (Get-Command resolves through the wrapper, so the
+  probe pins the unresolved bin path.)
+- Per-user `~/.ssh/authorized_keys` is read directly — no admin-file quirk.
 
 **Two harness bugs found the hard way (both fixed; relevant to the build):**
 1. **authorized_keys newline merge.** Appending our entry to a file whose last

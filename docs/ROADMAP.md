@@ -15,7 +15,7 @@ Windows probes required first: host reachability from inside a wslc container,
 Win32-OpenSSH `administrators_authorized_keys` quirk, binding/firewalling sshd
 away from the LAN. **(d) agent-socket forwarding stays demoted** — it grants the
 keys' full authority and is strictly wider than the callback.
-**Probes PASSED (2026-07-23, Windows/wslc) — GO. See FINDINGS P7.** The kit in
+**Probes PASSED (2026-07-23, Windows/wslc AND macOS/OrbStack) — GO. See FINDINGS P7.** The kit in
 `probes/` (validator prototype `sbx-sync-exec.ps1` + unit tests; host harness
 `probe-host.ps1`; runbook `docs/probes/c-heavy-sync-probes.md`) ran green end to
 end: container reached host sshd, dedicated key + forced command honored, three
@@ -28,10 +28,10 @@ verbatim (both bit us — P7); don't create `administrators_authorized_keys` whe
 it's absent. LAN-exposure (probe #4) checked, resolved-with-nuance: host sshd is
 LAN-reachable, but that's pre-existing (the owner already runs sshd) and c-heavy
 doesn't widen it — the dedicated key stays forced-command-bounded regardless of
-who reaches the port (FINDINGS P7). macOS: `probe-host.ps1` is cross-platform and
-mac-hardened (abs pwsh path in the forced command, Remote Login + Local-Network
-reminders, `log show` diagnostics) — run the same script on the Mac to probe the
-OrbStack->mac-sshd path. Remaining build surface: container-side caller
+who reaches the port (FINDINGS P7). macOS passed too (OrbStack): reach via
+`host.docker.internal`, forced command via the Homebrew wrapper
+`/opt/homebrew/bin/pwsh` (not the Cellar apphost), Local Network permission
+required (P6). Remaining build surface: container-side caller
 (`GIT_SSH_COMMAND`/`sbx sync` inside the container), `sbx sync-setup` key
 provisioning, host sshd setup guide, concurrency for simultaneous pushes.
 
