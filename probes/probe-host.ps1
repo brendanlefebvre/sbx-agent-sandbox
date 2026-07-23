@@ -219,6 +219,29 @@ function Get-LastLine {
     if ($l.Count) { $l[-1] } else { '(no output)' }
 }
 
+function Show-SshdAuthLog {
+    # On a publickey rejection, sshd almost always logged WHY. Surface it so we
+    # can tell StrictModes/ACL ("bad ownership or modes") from a parse problem
+    # ("key_read"/"error parsing") from a plain no-match.
+    if (-not $IsWindows) {
+        Write-Host "  check the sshd log for the reason (e.g. journalctl -u ssh / /var/log/auth.log)" -ForegroundColor DarkGray
+        return
+    }
+    try {
+        $ev = Get-WinEvent -LogName 'OpenSSH/Operational' -MaxEvents 50 -ErrorAction Stop |
+              Where-Object { $_.Message -match 'authoriz|refus|publickey|modes|ownership|Failed|Accepted|parsing|key_read' } |
+              Select-Object -First 6
+        if ($ev) {
+            Write-Host "  --- recent sshd log (OpenSSH/Operational) ---" -ForegroundColor DarkGray
+            foreach ($e in $ev) { Write-Host "    $($e.TimeCreated.ToString('HH:mm:ss')) $(($e.Message -split "`n")[0])" -ForegroundColor DarkGray }
+        } else {
+            Write-Host "  (no matching OpenSSH/Operational events — the log may be disabled; set 'SyslogFacility LOCAL0'/'LogLevel VERBOSE' in sshd_config)" -ForegroundColor DarkGray
+        }
+    } catch {
+        Write-Host "  (couldn't read OpenSSH/Operational log: $($_.Exception.Message))" -ForegroundColor DarkGray
+    }
+}
+
 # ---- run ----------------------------------------------------------------------
 Write-Host "sbx c-heavy sync probe — runtime=$Runtime user=$SshUser port=$Port" -ForegroundColor Cyan
 Write-Host "If interrupted, undo by hand: delete lines tagged '$TAG' from your authorized_keys and remove the temp dir under $([IO.Path]::GetTempPath())." -ForegroundColor DarkGray
@@ -271,6 +294,7 @@ try {
     # problem, so stop here with that verdict rather than run a meaningless matrix.
     if ($reachOut -notmatch 'sbx-sync-exec: (OK|REJECT)') {
         Add-Result 'auth/forced-command' $false "reached sshd but key/forced-command not honored: $(Get-LastLine $reachOut)"
+        Show-SshdAuthLog
         return
     }
     Add-Result 'auth/forced-command' $true 'dedicated key accepted; forced command fired'
