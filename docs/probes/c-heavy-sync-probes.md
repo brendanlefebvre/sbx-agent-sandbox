@@ -67,7 +67,20 @@ pwsh -NoProfile -File probes/probe-host.ps1
 
 Useful switches: `-Address 172.x.y.z` to force a host address (skip
 auto-discovery), `-SshUser <name>`, `-Port <n>`, `-KeepArtifacts` to leave the
-throwaway key/line in place for manual poking (undo by hand afterward).
+throwaway key/line in place for manual poking (undo by hand afterward), and
+`-AuthorizedKeysFile <path>` to force which file the key line is written to.
+
+By default the harness auto-detects the Win32-OpenSSH admin-file quirk: if your
+account is in local Administrators it targets `administrators_authorized_keys`
+(and needs an elevated shell). **If you've disabled that Match block in
+`sshd_config`** so sshd reads the per-user file for everyone, pass
+`-AuthorizedKeysFile "$HOME\.ssh\authorized_keys"` (no elevation needed).
+
+The harness prechecks the `sshd` service + local port and prints each
+candidate's SSH error, so a failure is legible: `Connection timed out`/`refused`
+= routing/sshd; `Permission denied (publickey)` = the key landed in a file this
+sshd doesn't read (wrong authorized_keys file or ACL), not a reachability
+problem.
 
 What it does, all throwaway and removed in `finally`: generates an ed25519
 keypair in a temp dir, creates a bare git remote + a working repo as `myrepo` in

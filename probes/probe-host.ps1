@@ -28,6 +28,10 @@ param(
     [string]$Runtime,   # resolved below, after sbx.ps1 is dot-sourced
     [int]$Port        = 22,
     [string[]]$Address = @(),   # force specific host addresses; else auto-discover
+    # Force the authorized_keys file. Default auto-detects the Win32-OpenSSH
+    # admin-file quirk; pass e.g. "$HOME\.ssh\authorized_keys" if you've disabled
+    # the administrators_authorized_keys Match block in sshd_config.
+    [string]$AuthorizedKeysFile,
     [switch]$KeepArtifacts      # skip teardown (debugging)
 )
 
@@ -49,18 +53,30 @@ function Get-AuthorizedKeysTarget {
     # Win32-OpenSSH ignores per-user authorized_keys for members of the local
     # Administrators group and reads C:\ProgramData\ssh\administrators_authorized_keys
     # instead (with strict ACLs — see runbook). Elsewhere: ~/.ssh/authorized_keys.
+    if ($AuthorizedKeysFile) {
+        # Explicit override — caller knows which file THIS sshd honors.
+        return [pscustomobject]@{ Path = $AuthorizedKeysFile; Admin = $false; Elevated = $true }
+    }
     if ($IsWindows) {
-        $admin = ([Security.Principal.WindowsPrincipal] `
-                  [Security.Principal.WindowsIdentity]::GetCurrent()
-                 ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-        if ($admin) {
+        $id = [Security.Principal.WindowsIdentity]::GetCurrent()
+        # MEMBERSHIP, not elevation: sshd picks the file by whether the account is
+        # in local Administrators, regardless of the current token's elevation.
+        # IsInRole() only reports elevation, so it wrongly sends an unelevated
+        # admin shell to the per-user file (which sshd then ignores).
+        $adminSid = [Security.Principal.SecurityIdentifier]::new(
+            [Security.Principal.WellKnownSidType]::BuiltinAdministratorsSid, $null)
+        $memberOfAdmins = @($id.Groups) -contains $adminSid
+        $elevated = ([Security.Principal.WindowsPrincipal]$id).IsInRole(
+            [Security.Principal.WindowsBuiltInRole]::Administrator)
+        if ($memberOfAdmins) {
             return [pscustomobject]@{
-                Path  = (Join-Path $env:ProgramData 'ssh/administrators_authorized_keys')
-                Admin = $true
+                Path     = (Join-Path $env:ProgramData 'ssh/administrators_authorized_keys')
+                Admin    = $true
+                Elevated = $elevated
             }
         }
     }
-    return [pscustomobject]@{ Path = (Join-Path $HOME '.ssh/authorized_keys'); Admin = $false }
+    return [pscustomobject]@{ Path = (Join-Path $HOME '.ssh/authorized_keys'); Admin = $false; Elevated = $true }
 }
 
 function New-ProbeArtifacts {
@@ -78,7 +94,7 @@ function New-ProbeArtifacts {
     $bare = Join-Path $root 'remote.git'
     & git init --bare -q $bare
     $repo = Join-Path $ws 'myrepo'
-    & git clone -q $bare $repo
+    & git clone -q $bare $repo 2>&1 | Out-Null   # "cloned an empty repository" is expected here
     & git -C $repo -c user.email=probe@sbx -c user.name=probe commit --allow-empty -q -m 'probe seed'
     & git -C $repo push -q origin HEAD 2>&1 | Out-Null
 
@@ -98,8 +114,15 @@ function Install-AuthorizedKey {
     Add-Content -Path $Target.Path -Value $line
     Write-Host "  wrote forced-command line (tag '$TAG') to $($Target.Path)" -ForegroundColor Yellow
     if ($Target.Admin) {
-        Write-Host "  NOTE: administrators_authorized_keys must be ACL'd to Administrators+SYSTEM only;" -ForegroundColor Yellow
-        Write-Host "        if auth is refused, apply the icacls recipe from the runbook and re-run." -ForegroundColor Yellow
+        # sshd silently ignores administrators_authorized_keys unless it is owned
+        # by / writable only by Administrators + SYSTEM. Apply that ACL now so the
+        # probe doesn't fail for a reason unrelated to what we're testing.
+        & icacls $Target.Path /inheritance:r /grant '*S-1-5-32-544:F' /grant '*S-1-5-18:F' 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "  WARN: could not set ACL on $($Target.Path) — apply the runbook icacls recipe by hand." -ForegroundColor Yellow
+        } else {
+            Write-Host "  applied Administrators+SYSTEM-only ACL to administrators_authorized_keys" -ForegroundColor DarkGray
+        }
     }
 }
 
@@ -114,11 +137,13 @@ function Get-CandidateHostAddresses {
     if ($Address.Count) { return $Address }
     $cands = [System.Collections.Generic.List[string]]::new()
     # Addresses as the CONTAINER sees them: default-route gateway + DNS nameserver
-    # (in WSL2 NAT these are typically the host).
+    # (in WSL2 NAT these are typically the host). Emit the raw route/resolv.conf
+    # and parse host-side — no awk/`$` escaping to survive the PowerShell->bash hop.
     try {
-        $seen = & $Runtime run --rm sbx:latest bash -lc `
-            "ip route show default 2>/dev/null | awk '{print \$3; exit}'; awk '/nameserver/{print \$2; exit}' /etc/resolv.conf 2>/dev/null"
-        foreach ($l in @($seen)) { if ($l -and $l.Trim()) { $cands.Add($l.Trim()) } }
+        $raw = & $Runtime run --rm sbx:latest bash -lc 'ip route show default; echo ---; cat /etc/resolv.conf'
+        $text = @($raw) -join "`n"
+        if ($text -match 'default via (\d+\.\d+\.\d+\.\d+)') { $cands.Add($matches[1]) }
+        foreach ($m in [regex]::Matches($text, 'nameserver\s+(\d+\.\d+\.\d+\.\d+)')) { $cands.Add($m.Groups[1].Value) }
     } catch { Write-Warning "container address discovery failed: $($_.Exception.Message)" }
     # Names the runtime may inject, plus host-enumerated IPv4s.
     $cands.Add('host.docker.internal')
@@ -142,25 +167,63 @@ function Invoke-ContainerSsh {
     return [pscustomobject]@{ Exit = $LASTEXITCODE; Output = ($out -join "`n") }
 }
 
+function Test-LocalPort {
+    # Is anything listening on 127.0.0.1:<port> here? Distinguishes "sshd down"
+    # from "container can't route to the host".
+    param([int]$Port)
+    $c = [Net.Sockets.TcpClient]::new()
+    try {
+        $iar = $c.BeginConnect('127.0.0.1', $Port, $null, $null)
+        return $iar.AsyncWaitHandle.WaitOne(1500) -and $c.Connected
+    } catch { return $false } finally { $c.Close() }
+}
+
+function Get-LastLine {
+    param([string]$Text)
+    $l = @($Text -split "`n" | Where-Object { $_ -match '\S' })
+    if ($l.Count) { $l[-1] } else { '(no output)' }
+}
+
 # ---- run ----------------------------------------------------------------------
 Write-Host "sbx c-heavy sync probe — runtime=$Runtime user=$SshUser port=$Port" -ForegroundColor Cyan
 Write-Host "If interrupted, undo by hand: delete lines tagged '$TAG' from your authorized_keys and remove the temp dir under $([IO.Path]::GetTempPath())." -ForegroundColor DarkGray
 
 $target = Get-AuthorizedKeysTarget
+Write-Host "  authorized_keys target: $($target.Path)$(if ($target.Admin) { ' (Win32-OpenSSH admin file)' })" -ForegroundColor DarkGray
+# Elevation gate: only the admin-file path needs it (writing under ProgramData\ssh
+# + setting its ACL). The per-user file and any -AuthorizedKeysFile override don't.
+if ($target.Admin -and -not $target.Elevated) {
+    throw "This account is a local Administrator, so sshd reads administrators_authorized_keys — re-run pwsh elevated, or if you disabled that Match block in sshd_config pass -AuthorizedKeysFile `"$HOME\.ssh\authorized_keys`"."
+}
+
+# sshd sanity BEFORE we blame reachability.
+if ($IsWindows) {
+    $svc = Get-Service sshd -ErrorAction SilentlyContinue
+    if (-not $svc)                       { Write-Host "  WARN: no 'sshd' service — install Win32-OpenSSH (runbook)" -ForegroundColor Yellow }
+    elseif ($svc.Status -ne 'Running')   { Write-Host "  WARN: sshd service is $($svc.Status), not Running" -ForegroundColor Yellow }
+    else                                 { Write-Host "  sshd service: Running" -ForegroundColor DarkGray }
+}
+if (Test-LocalPort -Port $Port) { Write-Host "  sshd is listening on 127.0.0.1:$Port (host-local)" -ForegroundColor DarkGray }
+else { Write-Host "  WARN: nothing answering on 127.0.0.1:$Port — start sshd before expecting reachability" -ForegroundColor Yellow }
+
 $art = $null
 try {
     $art = New-ProbeArtifacts
     Install-AuthorizedKey -Art $art -Target $target
 
-    # Probe 1 — reachability: find an address the container can SSH to.
+    # Probe 1 — reachability: find an address the container can SSH to. Surface
+    # each candidate's error so the failure mode is legible: "Connection
+    # timed out"/"refused" = routing/sshd; "Permission denied (publickey)" =
+    # auth (wrong authorized_keys file or ACL, not a reachability problem).
     $reachable = $null
     foreach ($addr in (Get-CandidateHostAddresses)) {
         Write-Host "  trying host address $addr ..." -ForegroundColor DarkGray
         $r = Invoke-ContainerSsh -Addr $addr -RemoteCmd 'myrepo fetch' -Art $art
         if ($r.Output -match 'sbx-sync-exec: (OK|REJECT)') { $reachable = $addr; break }
+        Write-Host "    -> $(Get-LastLine $r.Output)" -ForegroundColor DarkGray
     }
     if (-not $reachable) {
-        Add-Result 'reachability' $false 'no candidate host address reachable from the container (see runbook; do NOT proxy via host)'
+        Add-Result 'reachability' $false 'no candidate host address reachable from the container (see per-address errors above; do NOT proxy via host)'
         return
     }
     Add-Result 'reachability' $true "container reached sshd at $reachable"
