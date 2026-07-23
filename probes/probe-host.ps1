@@ -25,7 +25,7 @@
 [CmdletBinding()]
 param(
     [string]$SshUser  = $(if ($env:USERNAME) { $env:USERNAME } else { $env:USER }),
-    [string]$Runtime  = (Resolve-SbxRuntime),
+    [string]$Runtime,   # resolved below, after sbx.ps1 is dot-sourced
     [int]$Port        = 22,
     [string[]]$Address = @(),   # force specific host addresses; else auto-discover
     [switch]$KeepArtifacts      # skip teardown (debugging)
@@ -33,6 +33,7 @@ param(
 
 . "$PSScriptRoot/../sbx.ps1"    # reuse ConvertTo-SbxMountPath / Resolve-SbxRuntime
 $ErrorActionPreference = 'Stop'
+if (-not $Runtime) { $Runtime = Resolve-SbxRuntime }   # param defaults run before the dot-source
 
 $TAG      = 'sbx-cheavy-probe'
 $ExecPath = (Resolve-Path "$PSScriptRoot/sbx-sync-exec.ps1").Path
