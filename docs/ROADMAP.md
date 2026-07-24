@@ -8,7 +8,7 @@ readiness, not priority — reshuffle at will.
 
 ### 1. `sbx help`
 A `help` subcommand listing every sbx command with its invocation signature (and
-the `--here`/`--tab` modifiers, which only apply to attach/scratch). Today the
+the `--new-window`/`--tab` modifiers, which only apply to attach/scratch). Today the
 command surface only exists in the README table — there is nothing to type. Keep
 it generated from, or checked against, that table so the two can't drift.
 

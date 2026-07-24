@@ -98,8 +98,11 @@ Describe 'ConvertFrom-SbxArgs — sync-setup (c-heavy)' {
     It 'still rejects genuinely unknown options' {
         { ConvertFrom-SbxArgs @('sync-setup', '--yolo') } | Should -Throw '*Unknown option*'
     }
-    It 'leaves the existing flags working alongside the new parser loop' {
-        (ConvertFrom-SbxArgs @('foo', '--here')).Window | Should -Be 'here'
-        (ConvertFrom-SbxArgs @('--tab')).Window         | Should -Be 'tab'
+    It 'leaves the existing window flags working alongside the new parser loop' {
+        (ConvertFrom-SbxArgs @('foo')).Window                 | Should -Be 'here'
+        (ConvertFrom-SbxArgs @('foo', '--new-window')).Window | Should -Be 'window'
+        (ConvertFrom-SbxArgs @('--window')).Window            | Should -Be 'window'
+        (ConvertFrom-SbxArgs @('--win')).Window               | Should -Be 'window'
+        (ConvertFrom-SbxArgs @('--tab')).Window               | Should -Be 'tab'
     }
 }
