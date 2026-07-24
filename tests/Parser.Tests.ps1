@@ -66,3 +66,40 @@ Describe 'ConvertFrom-SbxArgs (v2)' {
         { ConvertFrom-SbxArgs @('sync', '.', 'push') }  | Should -Throw '*invalid project name*'
     }
 }
+
+Describe 'ConvertFrom-SbxArgs — sync-setup (c-heavy)' {
+    It 'parses the bare subcommand' {
+        (ConvertFrom-SbxArgs @('sync-setup')).Command | Should -Be 'sync-setup'
+    }
+    It 'consumes the value-taking options' {
+        $o = ConvertFrom-SbxArgs @('sync-setup', '--address', '172.20.240.1', '--user', 'me',
+                                   '--port', '2222', '--authorized-keys', '/tmp/ak')
+        $o.Address            | Should -Be '172.20.240.1'
+        $o.SshUser            | Should -Be 'me'
+        $o.Port               | Should -Be '2222'
+        $o.AuthorizedKeysFile | Should -Be '/tmp/ak'
+    }
+    It 'parses the boolean switches' {
+        (ConvertFrom-SbxArgs @('sync-setup', '--print-only')).PrintOnly | Should -BeTrue
+        (ConvertFrom-SbxArgs @('sync-setup', '--remove')).Remove        | Should -BeTrue
+    }
+    It 'never swallows an option value as a positional' {
+        # --address eating 'push' here would silently turn a typo into a sync.
+        $o = ConvertFrom-SbxArgs @('sync-setup', '--address', 'host.docker.internal')
+        $o.Command | Should -Be 'sync-setup'
+        $o.Target  | Should -BeNullOrEmpty
+    }
+    It 'errors when a value-taking option is last' {
+        { ConvertFrom-SbxArgs @('sync-setup', '--address') } | Should -Throw '*expects a value*'
+    }
+    It 'rejects a non-numeric port' {
+        { ConvertFrom-SbxArgs @('sync-setup', '--port', 'abc') } | Should -Throw '*expects a number*'
+    }
+    It 'still rejects genuinely unknown options' {
+        { ConvertFrom-SbxArgs @('sync-setup', '--yolo') } | Should -Throw '*Unknown option*'
+    }
+    It 'leaves the existing flags working alongside the new parser loop' {
+        (ConvertFrom-SbxArgs @('foo', '--here')).Window | Should -Be 'here'
+        (ConvertFrom-SbxArgs @('--tab')).Window         | Should -Be 'tab'
+    }
+}

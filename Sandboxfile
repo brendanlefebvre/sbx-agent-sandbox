@@ -73,6 +73,56 @@ RUN printf '\nHost *\n    StrictHostKeyChecking accept-new\n' >> /etc/ssh/ssh_co
       > /usr/local/bin/sbx-entrypoint \
  && chmod +x /usr/local/bin/sbx-entrypoint
 
+# c-heavy sync client. Inside the sandbox `sbx sync push` is the ONE host
+# operation an agent can trigger: it SSHes back to the host with the dedicated
+# key (mounted at .ssh-ro by `sbx sync-setup`, copied to ~/.ssh above), whose
+# authorized_keys line pins it to sbx-sync-exec — three verbs on workspace repos,
+# no shell, no forwarding. Host address/user/port are read LIVE from the mounted
+# sync.conf, so re-pointing the host doesn't need a container rebuild.
+# No single quotes below: each line is a single-quoted printf argument.
+RUN printf '%s\n' \
+      '#!/bin/sh' \
+      '# sbx (in-container) — c-heavy sync client. See docs/SYNC.md on the host.' \
+      'set -eu' \
+      'conf=/home/agent/.ssh-ro/sync.conf' \
+      'key="$HOME/.ssh/id_sbx_sync"' \
+      'die() { echo "sbx: $*" >&2; exit 2; }' \
+      'case "${1:-}" in' \
+      '  sync) shift ;;' \
+      '  ""|-h|--help|help)' \
+      '    echo "usage: sbx sync [<project>] <push|pull|fetch>" >&2' \
+      '    echo "  Runs the git op HOST-side in the project workspace dir, with host" >&2' \
+      '    echo "  credentials. Project defaults to the one containing your cwd." >&2' \
+      '    echo "  Every other sbx command is host-side only — run it on the host." >&2' \
+      '    exit 0 ;;' \
+      '  *) die "unknown command: $1 — inside the sandbox only <sbx sync> exists; run other sbx commands on the host" ;;' \
+      'esac' \
+      'case $# in' \
+      '  1) name=""; op="$1" ;;' \
+      '  2) name="$1"; op="$2" ;;' \
+      '  *) die "usage: sbx sync [<project>] <push|pull|fetch>" ;;' \
+      'esac' \
+      '# Provisioning first: otherwise an unconfigured sandbox complains about the' \
+      '# cwd, sending you to look in entirely the wrong place.' \
+      '[ -f "$conf" ] || die "c-heavy sync is not provisioned — run <sbx sync-setup --address ...> on the host, then <sbx rebuild>"' \
+      '[ -f "$key" ] || die "sync key missing at $key — run <sbx rebuild> on the host"' \
+      'if [ -z "$name" ]; then' \
+      '  case "$PWD" in' \
+      '    /work/*) name=$(printf %s "${PWD#/work/}" | cut -d/ -f1) ;;' \
+      '    *) die "not inside a project (cwd $PWD) — name it: sbx sync <project> $op" ;;' \
+      '  esac' \
+      'fi' \
+      'host=$(sed -n "s/^host=//p" "$conf" | head -1)' \
+      'user=$(sed -n "s/^user=//p" "$conf" | head -1)' \
+      'port=$(sed -n "s/^port=//p" "$conf" | head -1)' \
+      '[ -n "$host" ] || die "no host= in $conf"' \
+      '[ -n "$user" ] || die "no user= in $conf"' \
+      '[ -n "$port" ] || port=22' \
+      '# The remote command is fixed two tokens; sbx-sync-exec re-validates both.' \
+      'exec ssh -o BatchMode=yes -o ConnectTimeout=10 -i "$key" -p "$port" "$user@$host" "$name $op"' \
+      > /usr/local/bin/sbx \
+ && chmod +x /usr/local/bin/sbx
+
 # Claude's global config file is normally ~/.claude.json — a sibling of the
 # ~/.claude dir, so it would live OUTSIDE the persisted auth volume and be lost
 # every run (Claude warns "configuration file not found"). Pointing
