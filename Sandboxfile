@@ -53,6 +53,23 @@ RUN useradd --create-home --uid 1000 --shell /bin/bash agent \
     && mkdir -p /work /home/agent/.claude/projects \
     && chown -R agent:agent /work /home/agent
 
+# Bake tmux config into the image so every container gets truecolor + working
+# modified keys (Shift-Enter). Lives at /home/agent/.tmux.conf (home root, NOT
+# under .claude): the .claude auth volume mounts over that subtree and would
+# shadow anything nested inside it, losing the config every run.
+#  - terminal-features *:RGB — SSH strips COLORTERM, so advertise RGB to any
+#    client (the RGB capability comes from this line, not the "256color" name).
+#  - extended-keys on + *:extkeys — forward CSI-u sequences instead of
+#    collapsing Shift-Enter to a plain Enter.
+# Runs as root (USER agent is set later), so chown the file to agent afterward.
+RUN printf '%s\n' \
+      'set -g  default-terminal "tmux-256color"' \
+      'set -as terminal-features ",*:RGB"' \
+      'set -s  extended-keys on' \
+      'set -as terminal-features ",*:extkeys"' \
+      > /home/agent/.tmux.conf \
+ && chown agent:agent /home/agent/.tmux.conf
+
 # --ssh support. Under `--ssh`, keys are bind-mounted read-only at
 # /home/agent/.ssh-ro as root:root mode 0777 (wslc bind ownership), which ssh
 # refuses to use as a private key. The entrypoint copies them into ~/.ssh at
@@ -104,6 +121,10 @@ ENV CLAUDE_CONFIG_DIR=/home/agent/.claude
 ENV LANG=C.UTF-8 \
     LC_ALL=C.UTF-8 \
     DISABLE_AUTOUPDATER=1
+
+# Advertise truecolor to TUIs that self-gate on COLORTERM (SSH does not forward
+# it). The tmux.conf above makes the pipe carry RGB; this makes apps emit it.
+ENV COLORTERM=truecolor
 
 USER agent
 WORKDIR /work
