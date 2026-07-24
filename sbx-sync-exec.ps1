@@ -35,7 +35,11 @@ if (-not $decision.Ok) {
     [Console]::Error.WriteLine("sbx-sync-exec: REJECT $($decision.Reason)")
     exit 2
 }
-[Console]::Error.WriteLine("sbx-sync-exec: OK $($decision.Name) $($decision.Operation)")
+# RUN, not OK: the validator has accepted, but nothing has been attempted yet.
+# Emitted before the work so a client that hangs or dies mid-git can still tell
+# "the forced command fired" from "the key never got in" — the two failure modes
+# look identical from the container otherwise.
+[Console]::Error.WriteLine("sbx-sync-exec: RUN $($decision.Name) $($decision.Operation)")
 try {
     # Locked: concurrent agents (and the human's own `sbx sync`) serialize per repo.
     Invoke-SbxSyncGit -Dir $decision.Dir -Operation $decision.Operation
@@ -43,7 +47,11 @@ try {
 catch {
     # A PowerShell error record over SSH is a wall of ANSI-coloured stack trace the
     # agent then has to interpret. Emit the same one-line shape as a REJECT.
+    # Reaches here for a failed git too — Invoke-SbxSyncGit throws on a non-zero
+    # exit — so FAILED means what docs/SYNC.md says it means.
     [Console]::Error.WriteLine("sbx-sync-exec: FAILED $($_.Exception.Message)")
     exit 3
 }
-exit $LASTEXITCODE
+# Only now: OK means the git operation actually completed.
+[Console]::Error.WriteLine("sbx-sync-exec: OK $($decision.Name) $($decision.Operation)")
+exit 0

@@ -95,13 +95,28 @@ it drops the line and destroys the key material.
 
 Inside the sandbox, from a project directory:
 
-```
+```text
 agent@sbx-main:/work/myrepo$ sbx sync push
+sbx-sync-exec: RUN myrepo push
 sbx-sync-exec: OK myrepo push
 ```
 
 The project defaults to the one containing your cwd; `sbx sync <name> <op>`
 names another. Every other `sbx` verb is host-side only.
+
+Three status lines, all on stderr, all single-line by design — an agent can
+branch on them without parsing a stack trace:
+
+| Line | Means |
+|---|---|
+| `RUN <name> <op>` | validated; the git operation is starting |
+| `OK <name> <op>` | the git operation **completed successfully** |
+| `REJECT <reason>` | the validator refused; nothing ran |
+| `FAILED <message>` | it started and did not finish (git exited non-zero, the lock timed out, or the config check refused the repo) |
+
+`RUN` without a following `OK` or `FAILED` means the connection died mid-operation
+— distinguishable from a key that never got in, which produces no line at all.
+Exit status is `0` / `2` / `3` for OK / REJECT / FAILED.
 
 ## Troubleshooting
 
@@ -112,6 +127,7 @@ The failure mode tells you where to look:
 | `Connection timed out` / `refused` | routing or sshd — wrong address, or (macOS) missing Local Network permission |
 | `Permission denied (publickey)` | the key landed in a file *this* sshd doesn't read, or the ACL is wrong — not a reachability problem |
 | key accepted, no `sbx-sync-exec:` line | the host can't launch pwsh in sshd's minimal environment (macOS: the Homebrew *wrapper* `/opt/homebrew/bin/pwsh`, not the Cellar apphost) |
+| `RUN` but no `OK`/`FAILED` | the connection died mid-operation; the git op may have completed host-side |
 | `REJECT` | the validator refused the request; the reason is on the line |
 | `FAILED` | the validator accepted, git or the config check failed |
 

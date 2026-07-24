@@ -125,6 +125,41 @@ Describe 'Invoke-SbxSyncGit locking' {
     }
 }
 
+# A rejected push used to return cleanly: c-lite reported nothing, and the forced
+# command printed OK and exited non-zero with no FAILED line — the one shape
+# docs/SYNC.md tells an agent to branch on.
+Describe 'Invoke-SbxSyncGit propagates git failure' {
+    BeforeEach {
+        $script:lockDir = Join-Path $TestDrive "locks-fail-$([guid]::NewGuid())"
+        $script:repo    = Join-Path $TestDrive 'repo-fail'
+        New-Item -ItemType Directory -Force $script:repo | Out-Null
+        Mock -CommandName Get-SbxGitHardeningArgs -MockWith { @() }
+        Mock -CommandName Get-SbxUnsafeGitConfig  -MockWith { @() }
+    }
+    It 'throws when git exits non-zero' {
+        Mock -CommandName git -MockWith { $global:LASTEXITCODE = 1 }
+        { Invoke-SbxSyncGit -Dir $script:repo -Operation 'push' -LockDir $script:lockDir } |
+            Should -Throw '*git push failed (exit 1)*'
+    }
+    It 'still releases the lock, so the next sync is not blocked by a failure' {
+        Mock -CommandName git -MockWith { $global:LASTEXITCODE = 1 }
+        { Invoke-SbxSyncGit -Dir $script:repo -Operation 'push' -LockDir $script:lockDir } | Should -Throw
+        Mock -CommandName git -MockWith { $global:LASTEXITCODE = 0 }
+        { Invoke-SbxSyncGit -Dir $script:repo -Operation 'push' -LockDir $script:lockDir } | Should -Not -Throw
+    }
+    It 'does not throw on a clean exit' {
+        Mock -CommandName git -MockWith { $global:LASTEXITCODE = 0 }
+        { Invoke-SbxSyncGit -Dir $script:repo -Operation 'fetch' -LockDir $script:lockDir } | Should -Not -Throw
+    }
+    It 'does not read a STALE exit code as a failure' {
+        # A mock (or an earlier native call) that never touches $LASTEXITCODE must
+        # not make the next sync look like it failed.
+        $global:LASTEXITCODE = 9
+        Mock -CommandName git -MockWith { }
+        { Invoke-SbxSyncGit -Dir $script:repo -Operation 'pull' -LockDir $script:lockDir } | Should -Not -Throw
+    }
+}
+
 # The git call itself is a second security boundary: git executes .git/hooks/* and
 # a set of config keys, and the repo it runs in is agent-writable. Verified live:
 # an agent-written pre-push hook runs HOST-side without these pins.

@@ -211,11 +211,15 @@ function Get-CandidateHostAddresses {
 function Invoke-ContainerSsh {
     # Run `ssh <user>@<addr> "<remoteCmd>"` from inside a throwaway container with
     # the probe key mounted read-only (entrypoint copies it to ~/.ssh at 0600).
-    param([string]$Addr, [string]$RemoteCmd, $Art)
+    # $SshOpts are real CLIENT options, placed before the destination. They must
+    # never be smuggled into $RemoteCmd: that string is single-quoted below, so a
+    # flag written there stays part of the remote command and ssh never sees it.
+    param([string]$Addr, [string]$RemoteCmd, $Art, [string[]]$SshOpts = @())
     $keydir = Split-Path -Parent $Art.Key
     $mount  = ConvertTo-SbxMountPath -HostPath $keydir -Posix:$IsMacOS
+    $opts   = if ($SshOpts.Count) { ($SshOpts -join ' ') + ' ' } else { '' }
     $inner  = "ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=6 " +
-              "-i /home/agent/.ssh/id_ed25519 -p $Port $SshUser@$Addr '$RemoteCmd'"
+              "-i /home/agent/.ssh/id_ed25519 -p $Port $opts$SshUser@$Addr '$RemoteCmd'"
     $out = & $Runtime run --rm -v "${mount}:/home/agent/.ssh-ro:ro" sbx:latest bash -lc $inner 2>&1
     return [pscustomobject]@{ Exit = $LASTEXITCODE; Output = ($out -join "`n") }
 }
@@ -327,7 +331,7 @@ try {
         Show-SshdAuthLog
         return
     }
-    if ($reachOut -notmatch 'sbx-sync-exec: (OK|REJECT)') {
+    if ($reachOut -notmatch 'sbx-sync-exec: (RUN|OK|REJECT)') {
         # Key ACCEPTED (no denial) but the forced command didn't run the validator
         # — almost always the host can't launch pwsh in sshd's minimal env.
         Add-Result 'auth/forced-command' $false "key accepted, but the forced command didn't run the validator (host pwsh/PATH?): $(Get-LastLine $reachOut)"
@@ -337,9 +341,13 @@ try {
     Add-Result 'auth/forced-command' $true 'dedicated key accepted; forced command fired'
 
     # Probe 2 — forced command: positives run the op, negatives are refused.
+    # Assert the OUTCOME, not just that a line was printed. `OK` is emitted only
+    # after git succeeds (see sbx-sync-exec.ps1), and exit 0 comes with it — an
+    # earlier version matched `OK` alone, which the pre-git `OK` made unfalsifiable.
     foreach ($op in @('push','pull','fetch')) {
         $r = Invoke-ContainerSsh -Addr $reachable -RemoteCmd "myrepo $op" -Art $art
-        Add-Result "allow:$op" ($r.Output -match 'sbx-sync-exec: OK') $r.Output.Split("`n")[-1]
+        $ok = ($r.Exit -eq 0) -and ($r.Output -match 'sbx-sync-exec: OK')
+        Add-Result "allow:$op" $ok "exit $($r.Exit): $(Get-LastLine $r.Output)"
     }
     $deny = @(
         @{ n='deny:clone';     c='myrepo clone' },
@@ -350,12 +358,26 @@ try {
     )
     foreach ($d in $deny) {
         $r = Invoke-ContainerSsh -Addr $reachable -RemoteCmd $d.c -Art $art
-        # Refused == validator said REJECT (or the connection produced no OK).
-        Add-Result $d.n (($r.Output -match 'REJECT') -or ($r.Output -notmatch 'sbx-sync-exec: OK')) $r.Output.Split("`n")[-1]
+        # Refused == the validator SAID SO. The old `-or (no OK)` arm passed on any
+        # unrelated ssh failure, which would score a broken probe run as a clean
+        # sweep of denials — exactly backwards for a qualification harness.
+        $refused = ($r.Output -match 'sbx-sync-exec: REJECT') -and
+                   ($r.Output -notmatch 'sbx-sync-exec: (RUN|OK)')
+        Add-Result $d.n $refused "exit $($r.Exit): $(Get-LastLine $r.Output)"
     }
     # Forwarding must be killed by `restrict`, independent of the command.
-    $r = Invoke-ContainerSsh -Addr $reachable -RemoteCmd 'myrepo fetch" -L 9999:127.0.0.1:22 "' -Art $art
-    Add-Result 'deny:forwarding' ($r.Output -notmatch 'Local forwarding listening') 'restrict should refuse -L/-D'
+    #
+    # Tested with -R, not -L, because only -R is refusable at request time: a
+    # remote forward needs a server-side tcpip-forward request, which `restrict`
+    # denies outright and ssh reports. A -L forward is a purely client-side
+    # listener until something connects through it, so a bare -L can't fail —
+    # the previous check passed unconditionally, and worse, wrote the flag inside
+    # the quoted remote command where ssh never saw it as an option at all.
+    # `restrict` implies no-port-forwarding, which covers both directions.
+    $r = Invoke-ContainerSsh -Addr $reachable -RemoteCmd 'myrepo fetch' -Art $art `
+                             -SshOpts @('-R', '19999:127.0.0.1:22')
+    $refusedFwd = $r.Output -match 'remote port forwarding failed|administratively prohibited|forwarding.*(refused|disabled|not permitted)'
+    Add-Result 'deny:forwarding' $refusedFwd "exit $($r.Exit): $(Get-LastLine $r.Output)"
 }
 finally {
     if ($KeepArtifacts) {

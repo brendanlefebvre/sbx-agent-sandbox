@@ -939,7 +939,17 @@ function Invoke-SbxSyncGit {
         # One flat array rather than a splat: splatting an EMPTY $HardeningArgs
         # slips an empty-string argument into git's argv.
         $gitArgs = @('-C', $Dir) + @($HardeningArgs | Where-Object { $null -ne $_ }) + @($Operation)
+        # Reset first: a native command sets $LASTEXITCODE, but a stale value from
+        # an earlier call (or a mocked git in tests) must not read as a failure.
+        $global:LASTEXITCODE = 0
         & git @gitArgs
+        # git's own stderr already told the human what went wrong; this makes the
+        # FAILURE ITSELF programmatic. Without it a rejected push returns cleanly:
+        # c-lite reports nothing amiss, and the forced command's catch — the only
+        # thing that emits the documented FAILED line — never fires.
+        if ($LASTEXITCODE -ne 0) {
+            throw "sbx: git $Operation failed (exit $LASTEXITCODE) in '$(Split-Path -Leaf $Dir)'"
+        }
     }
     finally { $stream.Dispose() }
 }

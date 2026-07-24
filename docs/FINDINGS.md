@@ -493,10 +493,22 @@ the security invariants hold. Windows details below; macOS notes further down.
 
 Full matrix passed: reachability; dedicated key accepted + forced command
 fired; `push`/`pull`/`fetch` each ran host-side git (`Everything up-to-date`
-/ `Already up to date.` / `sbx-sync-exec: OK`); and every negative was refused
-— `clone` (verb), `push --force` (extra token), `../secret` (traversal),
-`ghost` (not in workspace), `; sh` (extra token), and `-L`/`-D` forwarding
-(killed by `restrict`).
+/ `Already up to date.` / `sbx-sync-exec: OK`); and every validator negative was
+refused — `clone` (verb), `push --force` (extra token), `../secret` (traversal),
+`ghost` (not in workspace), `; sh` (extra token).
+
+**Correction (2026-07-24), forwarding.** The original run also recorded "`-L`/`-D`
+forwarding killed by `restrict`", and that evidence does not hold: the harness
+wrote `-L …` *inside* the quoted remote command, where ssh never parsed it as an
+option, and then asserted the absence of a string that only appears under `-v`.
+The check could not fail. Two things follow. First, a bare `-L` is not refusable
+at request time anyway — a local forward is a client-side listener until traffic
+flows through it, so `-R` (which needs a server-side `tcpip-forward` request) is
+the testable direction. Second, the underlying property is almost certainly
+intact: `restrict` implies `no-port-forwarding`, which OpenSSH applies to both
+directions. The harness now tests it with `-R` and asserts the refusal; treat
+forwarding as **argued from `restrict` semantics, re-measured on the next probe
+run** rather than as measured on 2026-07-23. Everything else in P7 stands.
 
 **Reachability.** The container reached host sshd over the host's **Tailscale**
 address (`100.x`); an earlier run also reached it via the **WSL vEthernet
