@@ -168,10 +168,22 @@ Describe 'Get-SbxGitHardeningArgs' {
     It 'aims hooksPath at an empty dir — .git/hooks/* needs no config key to fire' {
         $script:h | Should -BeLike '*-c core.hooksPath=/var/empty-hooks*'
     }
+    # Every pin, not a sample: CLAUDE.md calls dropping one a widened boundary, so
+    # each must be able to fail a test on its own.
     It 'disables the config keys that name a program' -ForEach @(
-        @{ pin = 'core.fsmonitor=false' }, @{ pin = 'protocol.ext.allow=never' }
+        @{ pin = 'core.fsmonitor=false' }, @{ pin = 'protocol.ext.allow=never' },
+        @{ pin = 'protocol.file.allow=user' }
     ) {
         $script:h | Should -BeLike "*-c $pin*"
+    }
+    It 'suppresses the pager with --no-pager (core.pager=cat is not portable: no cat on Windows)' {
+        $script:h | Should -BeLike '*--no-pager*'
+    }
+    It 'pins <key>, whose value git executes' -ForEach @(
+        @{ key = 'core.sshCommand' }, @{ key = 'gpg.program' },
+        @{ key = 'core.editor' },     @{ key = 'core.askPass' }
+    ) {
+        $script:h | Should -BeLike "*-c $key=*"
     }
     It 'resets the multi-valued credential.helper list (a -c would only append to it)' {
         $script:h | Should -BeLike '*-c credential.helper=*'

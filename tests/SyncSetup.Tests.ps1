@@ -23,7 +23,10 @@ Describe 'Build-SbxAuthorizedKeysLine' {
         $line = Build-SbxAuthorizedKeysLine -PublicKey $script:pub -ExecPath 'C:\repo\sbx-sync-exec.ps1' `
                                             -WorkspaceDir 'C:\Users\me\sbx-ws' -PwshCommand 'pwsh'
         $line | Should -BeLike '*-File C:/repo/sbx-sync-exec.ps1 -WorkspaceDir C:/Users/me/sbx-ws"*'
-        $line | Should -Not -BeLike '*\\*'
+        # ONE backslash. PowerShell wildcards escape with a backtick, not a
+        # backslash, so '*\\*' asks for two CONSECUTIVE backslashes — a pattern
+        # this line could never match even with the normalization removed.
+        $line | Should -Not -BeLike '*\*'
     }
     It 'escapes an inner quote pair around a path containing spaces' {
         $line = Build-SbxAuthorizedKeysLine -PublicKey $script:pub -ExecPath 'C:\My Tools\sbx-sync-exec.ps1' `
