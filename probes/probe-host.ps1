@@ -40,22 +40,12 @@ $ErrorActionPreference = 'Stop'
 if (-not $Runtime) { $Runtime = Resolve-SbxRuntime }   # param defaults run before the dot-source
 
 $TAG      = 'sbx-cheavy-probe'
-$ExecPath = (Resolve-Path "$PSScriptRoot/sbx-sync-exec.ps1").Path
-# How the forced command invokes pwsh. On Windows bare `pwsh` resolves via
-# sshd's PATH (and the abs path "C:\Program Files\PowerShell\..." has a space
-# that would need re-quoting). On macOS sshd runs the command through the login
-# shell with a MINIMAL PATH, so pwsh (Homebrew: /opt/homebrew/bin, /usr/local/bin)
-# usually isn't found — use its absolute, space-free path there.
-$PwshInvoke = if ($IsWindows) { 'pwsh' } else {
-    # Prefer the UNRESOLVED launcher (e.g. Homebrew's /opt/homebrew/bin/pwsh is an
-    # env wrapper that sets DOTNET_ROOT); the resolved Cellar apphost fails with
-    # "missing runtime" in sshd's minimal environment. Fall back to Get-Command.
-    $cand = @('/opt/homebrew/bin/pwsh', '/usr/local/bin/pwsh', '/usr/bin/pwsh') |
-            Where-Object { Test-Path $_ } | Select-Object -First 1
-    if ($cand) { $cand }
-    elseif ((Get-Command pwsh -ErrorAction SilentlyContinue).Source) { (Get-Command pwsh).Source }
-    else { 'pwsh' }
-}
+# The SHIPPED validator, not a copy: c-heavy is built now (ROADMAP 1 closed), so
+# re-running this harness on a new host must exercise the real forced command.
+$ExecPath = (Resolve-Path "$PSScriptRoot/../sbx-sync-exec.ps1").Path
+# How the forced command invokes pwsh — the shipped rule (Windows: bare `pwsh`
+# off sshd's PATH; macOS: the Homebrew bin WRAPPER, not the Cellar apphost).
+$PwshInvoke = Get-SbxPwshCommand
 $results  = [System.Collections.Generic.List[object]]::new()
 function Add-Result { param($Probe, $Pass, $Detail)
     $results.Add([pscustomobject]@{ Probe = $Probe; Result = $(if ($Pass) {'PASS'} else {'FAIL'}); Detail = $Detail })
@@ -127,14 +117,12 @@ function Install-AuthorizedKey {
     # One tagged line: restrict (no pty/forwarding/agent/X11) + a forced command
     # pinned to the validator with the throwaway workspace baked in, so the probe
     # can never touch your real ~/sbx-ws.
-    $pub = (Get-Content -Raw $Art.Pub).Trim()
-    # Forward slashes (pwsh accepts them on Windows) and NO inner quotes: the
-    # probe's exec + temp-workspace paths contain no spaces, so we sidestep
-    # authorized_keys quote-escaping entirely. (The real build will need to quote
-    # + escape for paths that can contain spaces.)
-    $exec = ($ExecPath -replace '\\', '/')
-    $ws   = ($Art.Ws   -replace '\\', '/')
-    $line = "restrict,command=`"$PwshInvoke -NoProfile -File $exec -WorkspaceDir $ws`" $pub"
+    # Built by the SHIPPED line builder, so the probe validates the exact format
+    # `sbx sync-setup` installs — only the comment tag differs, keeping the
+    # throwaway line distinguishable from a real one.
+    $line = Build-SbxAuthorizedKeysLine -PublicKey (Get-Content -Raw $Art.Pub) `
+                                        -ExecPath $ExecPath -WorkspaceDir $Art.Ws `
+                                        -PwshCommand $PwshInvoke -Tag $TAG
     $dir = Split-Path -Parent $Target.Path
     if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force $dir | Out-Null }
     # Newline safety: if the file doesn't end in a newline, Add-Content would
