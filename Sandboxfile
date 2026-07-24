@@ -119,7 +119,11 @@ RUN printf '%s\n' \
       '[ -n "$user" ] || die "no user= in $conf"' \
       '[ -n "$port" ] || port=22' \
       '# The remote command is fixed two tokens; sbx-sync-exec re-validates both.' \
-      'exec ssh -o BatchMode=yes -o ConnectTimeout=10 -i "$key" -p "$port" "$user@$host" "$name $op"' \
+      '# IdentitiesOnly/IdentityAgent: offer the sync key and NOTHING else. -i alone' \
+      '# only appends to the candidate list, so any other key reachable from this' \
+      '# container could authenticate instead — landing on a session with no' \
+      '# restrict and no forced command, i.e. a shell on the host.' \
+      'exec ssh -o BatchMode=yes -o ConnectTimeout=10 -o IdentitiesOnly=yes -o IdentityAgent=none -i "$key" -p "$port" "$user@$host" "$name $op"' \
       > /usr/local/bin/sbx \
  && chmod +x /usr/local/bin/sbx
 
