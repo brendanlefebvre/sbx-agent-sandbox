@@ -48,5 +48,16 @@ for the implementation plan.
   (`/work/<name>`) under Claude's own `~/.claude/projects` layout. Orphaned `sbx-proj-*`
   volumes from the v1 per-repo model are retired; reap them by hand
   (`wslc volume remove <name>`) and don't recreate the pattern.
+- **Sync has two rungs.** *c-lite* (default): the human runs `sbx sync <name> <op>`
+  host-side, no keys in the container. *c-heavy* (opt-in, `sbx sync-setup`): a
+  dedicated container key pinned `restrict,command="…sbx-sync-exec.ps1…"` lets agents
+  trigger the same three verbs themselves. Both go through ONE validator
+  (`Resolve-SbxSyncRequest`) — never add a second allowlist. Read `docs/SYNC.md`
+  before touching either, especially the P8 part: host-side git runs in an
+  agent-writable repo and executes hooks and config-named programs, so
+  `Get-SbxGitHardeningArgs` (raceless `-c` pins) is load-bearing security, not
+  tidiness. Adding a verb, or dropping a pin, widens a boundary.
+- Changing the in-container `sbx sync` client means changing the image
+  (`Sandboxfile`) — rebuild the image and `sbx rebuild`, or you'll test the old one.
 
 Now say: "I've reviewed the project memory."

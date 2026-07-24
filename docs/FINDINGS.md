@@ -557,3 +557,60 @@ real question is "does c-heavy widen exposure beyond the existing sshd?" →
 already using it). Separate, pre-existing hygiene item (independent of c-heavy):
 a `Failed password` line in the log suggests `PasswordAuthentication` may be on;
 a LAN-reachable sshd should prefer key-only auth.
+
+## P8 — c-heavy build: the SSH allowlist is not the whole boundary; host-side git is
+
+Found 2026-07-24 while building c-heavy (ROADMAP item 1). P7 probed the *SSH*
+surface and it held. What P7 never exercised is what happens **after** the
+validator says OK: `git -C <workspace repo> <verb>` runs on the host, inside a
+repository the agent can write. git is not a passive file format — it executes
+programs named by `.git/hooks/*` and by a long tail of config keys.
+
+Demonstrated on this repo's own rig, all three before mitigation:
+
+1. **Hooks = host RCE.** An agent-written `.git/hooks/pre-push` ran host-side as
+   the host user on `sbx sync push`. No config key involved — `.git/hooks/` is
+   the default path. This is the big one.
+2. **Config = host RCE.** A repo-local `core.sshCommand` ran on fetch. The same
+   shape exists for `credential.helper`, `filter.*.clean`, `merge.*.driver`,
+   `remote.*.receivepack`, `diff.*.textconv`, `sequence.editor`, `gpg.program`, …
+3. **Symlink escape.** The old direct-child guard used `(Get-Item $dir).Parent`,
+   which for a *symlink* in the workspace is the workspace — so a link planted by
+   the container (which has the workspace mounted read-write) passed the check and
+   aimed host git at any directory on the host.
+
+**This was never c-heavy-only.** (1) and (2) apply to shipped c-lite as well: an
+agent plants the hook and waits for the human to run `sbx sync` themselves.
+c-heavy changes it from "agent can set a trap" to "agent springs it on demand".
+
+Fixed:
+- `Get-SbxGitHardeningArgs` — command-line `-c` pins on every sync:
+  `core.hooksPath` → an empty host-side dir, plus `core.fsmonitor`,
+  `protocol.ext.allow`, `protocol.file.allow`, `core.sshCommand`, `gpg.program`,
+  `core.editor`, `core.pager`, `core.askPass`, and a reset of the multi-valued
+  `credential.helper` list. **Raceless** — command-line config outranks every
+  file and the container can't edit our argv. Where the host legitimately sets one
+  of these, the value is read from global/system scope and re-pinned, so hardening
+  costs the user nothing.
+- `Get-SbxUnsafeGitConfig` — refuses a repo whose local/worktree config sets an
+  exec key whose name can't be pinned in advance (arbitrary middle segment).
+  **Advisory only**: the container can rewrite `.git/config` between our read and
+  git's. Recorded as a speed bump, not a boundary.
+- `Resolve-SbxSyncRequest` now rejects any workspace entry that is a link. `sbx
+  add` only ever creates real directories in the workspace (the link it leaves
+  points the other way, at the origin), so nothing legitimate is refused.
+
+Verified after the fix: the pre-push hook stays on disk and executable, the push
+succeeds, and the hook does not fire.
+
+**Residual, documented in `docs/SYNC.md` rather than papered over:** the denylist
+is racy and a denylist can miss a key; and `push` sends wherever
+`remote.origin.url` points, which the agent also controls — so c-heavy means an
+agent can push repo contents to a remote of its choosing. That last one is
+inherent to autonomous sync, not a transport bug: it *is* the review gate the
+feature deliberately gives up.
+
+**Method note worth keeping:** the probe pass asked "is the transport viable?"
+and answered it well. It did not ask "what does the thing at the far end of the
+transport execute?" When probing a hole shaped like a command allowlist, probe
+the *program the allowlist calls*, not just the allowlist.

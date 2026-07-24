@@ -1,16 +1,29 @@
 # c-heavy autonomous sync — probe runbook
 
-**Status:** probe-first pass (ROADMAP item 1). This validates whether the
-SSH-forced-command callback design is viable on a real host **before** we build
-it. Nothing here is wired into `sbx`; the whole kit lives under `probes/` and is
-deletable if the approach proves dead.
+**Status: c-heavy is BUILT** (2026-07-24) — see `docs/SYNC.md` for the shipped
+feature and `sbx sync-setup` for provisioning. This runbook survives its
+probe-first origins as the way to **qualify a new host**: it stands up throwaway
+key/repo/workspace artifacts, runs the full accept/reject matrix against the
+*shipped* validator (`sbx-sync-exec.ps1`), and tears everything down. Run it when
+you move to a new machine, change sshd, or suspect the transport.
 
-**Background.** Today only *c-lite* ships: the human runs `sbx sync <name> push`
+The prototype validator and its unit tests that used to live here are gone: the
+validator shipped into `sbx.ps1` (`Resolve-SbxSyncRequest` /
+`Resolve-SbxSyncCommand`) and its tests into `tests/Sync.Tests.ps1`, so this
+harness now exercises the real thing rather than a copy.
+
+**Note P8.** These probes cover the SSH surface only. They do NOT cover what the
+forced command *executes* — host-side git inside an agent-writable repo, which
+runs hooks and config-named programs. That hole was found during the build, not
+here; see FINDINGS P8 and the checklist steps 15–16 in `verify/CHECKLIST.md`.
+
+**Background.** *c-lite* is the default: the human runs `sbx sync <name> push`
 host-side, container holds no keys ("agents commit, human pushes"). *c-heavy*
 lets the container push/pull/fetch autonomously by SSH-ing back to an sshd on the
 host, where a dedicated key's `authorized_keys` line is pinned
 `restrict,command="sbx-sync-exec …"` so it can only invoke the validator
-(`probes/sbx-sync-exec.ps1`) for the three verbs against a workspace repo. See
+(`sbx-sync-exec.ps1`) for the three verbs against a workspace repo. See
+`docs/SYNC.md` and
 `docs/superpowers/specs/2026-07-22-sbx-unified-workspace-design.md:90-109`.
 
 ## Go/no-go ordering
@@ -105,8 +118,9 @@ containing `sbx-cheavy-probe` and remove the temp dir it named on startup.
 | `myrepo; sh` | `REJECT` (extra token / no shell) |
 | `-L`/`-D` forwarding | refused by `restrict` |
 
-The reject invariants are also unit-tested off-host: `Invoke-Pester probes` on
-any platform exercises `Resolve-SbxSyncExecRequest` directly.
+The reject invariants are also unit-tested off-host: `Invoke-Pester tests` on
+any platform exercises `Resolve-SbxSyncRequest` / `Resolve-SbxSyncCommand`
+directly, plus the git-surface hardening from P8.
 
 ## Manual check the harness can't do: LAN exposure
 
@@ -146,11 +160,9 @@ rule> | still exposed — TODO>.
 Verdict: <GO — build c-heavy | NO-GO — transport not viable, redesign> because …
 ```
 
-## If probes pass → next session (the build)
+## After a green run
 
-Fold the validator into a shared core with `Invoke-SbxSync` (same allowlist +
-workspace-child guard), add the container-side caller (a `GIT_SSH_COMMAND` /
-`sbx sync` wrapper that runs *inside* the container), the key-provisioning step
-(`sbx sync-setup`: keygen + install the pinned `authorized_keys` line), host sshd
-setup guidance, and concurrency handling for simultaneous pushes. All of that is
-out of scope for this probe pass.
+Nothing further to build — c-heavy shipped. A green matrix means this host can
+run it: `sbx sync-setup --address <the address that worked>` then `sbx rebuild`,
+and work through `verify/CHECKLIST.md` steps 11–18 (which include the P8
+hook/config containment checks this harness does not cover).

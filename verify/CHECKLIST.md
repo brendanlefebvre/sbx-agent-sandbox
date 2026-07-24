@@ -30,3 +30,34 @@ Run on Windows (wslc) unless marked; re-run the mirrored items on macOS.
 10. **wslc 15-mount ceiling re-check (2.9.4.0):** after the runs above, note
     whether the "Too many volumes (limit: 15)" error still occurs on repeated
     scratch launches; update docs/FINDINGS.md either way.
+
+## c-heavy sync (only if you ran `sbx sync-setup`)
+
+Steps 6 and 7 above describe the DEFAULT (c-lite) posture and stay true until
+you opt in. After `sbx sync-setup --address <addr>` + `sbx rebuild`:
+
+11. **Provisioning:** `~/.sbx/sync/` holds `id_sbx_sync` + `sync.conf`; your
+    `authorized_keys` gained exactly ONE line ending `sbx-sync`, and a
+    `.sbx.bak` sidecar of the pre-edit file sits next to it. Any key you already
+    had is byte-identical — diff against the `.bak`.
+12. **Round trip:** in the sandbox, in a project with a reachable remote:
+    `sbx sync fetch` prints `sbx-sync-exec: OK <name> fetch`. Then `sbx sync push`
+    against a scratch branch actually lands on the remote.
+13. **Name inference:** `sbx sync push` from `/work/<name>` targets `<name>`;
+    from `/work` (hub cwd) it refuses and asks you to name a project.
+14. **Negatives, from inside the container** — each must be refused, not run:
+    `sbx sync clone`, `sbx sync ../secret push`, `ssh -i ~/.ssh/id_sbx_sync
+    <user>@<addr> "myrepo push --force"`, and a bare `ssh … <user>@<addr>` (no
+    shell). Also `ssh -L 9999:127.0.0.1:22 …` must be refused by `restrict`.
+15. **Hook containment (P8):** `printf '#!/bin/sh\necho HOOK-RAN >&2\n' >
+    /work/<name>/.git/hooks/pre-push; chmod +x` it, then `sbx sync push`. The
+    push must succeed and `HOOK-RAN` must NOT appear. Delete the hook afterward.
+16. **Config denylist (P8):** `git -C /work/<name> config core.sshCommand
+    'sh -c id'` then `sbx sync fetch` → refused with a `FAILED … executes as a
+    program` line naming the key. `git config --unset` it afterward.
+17. **Concurrency:** trigger `sbx sync push` from two sessions on the SAME
+    project at once — both complete, serialized, neither reports a git index
+    lock error.
+18. **Revocation:** `sbx sync-setup --remove` on the host → the tagged line is
+    gone (and only that line), `~/.sbx/sync` is gone; after `sbx rebuild`,
+    `sbx sync fetch` in the container reports sync is not provisioned.

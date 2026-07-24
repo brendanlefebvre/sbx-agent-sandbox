@@ -59,6 +59,7 @@ project you've added, instead of a fresh throwaway container per repo.
 | `sbx ls`                | Workspace projects: name, original host path, whether a tmux session is live.                   |
 | `sbx rm <name>`         | Kill the project's tmux session; move the repo back to its origin; remove the link.              |
 | `sbx sync <name> <op>`  | **Host-side** git `push`/`pull`/`fetch` in the project's workspace dir, with host credentials.   |
+| `sbx sync-setup --address <addr>` | Opt in to **c-heavy**: provision the container's dedicated key so agents can trigger those same three verbs themselves. `--print-only`, `--remove`. See `docs/SYNC.md`. |
 | `sbx rebuild`           | Confirm, then destroy and recreate `sbx-main` from `sbx:latest` (workspace/history survive).     |
 | `sbx stop`              | Stop the `sbx-main` container.                                                                    |
 | `sbx status`            | One-glance fleet view: per tmux window, idle time, claude liveness, live status line (stalest first). `SBX_IDLE_WARN=<min>` flags stale sessions. See `docs/sbx-agent-status.md`. |
@@ -137,11 +138,22 @@ blocked/done signals — is the stage-8 material in `docs/ROADMAP.md`.
 
 ### Sync: agents commit, human pushes
 
-The container never holds SSH keys or git credentials. `sbx sync <name> push|pull|fetch`
-runs the git operation **host-side**, in the project's workspace directory, with your
-host credentials — exactly those three verbs, nothing wider. Agents inside the sandbox
-can commit freely; only a host-side `sbx sync` moves anything to or from a remote, which
-is a deliberate review gate on everything leaving the machine.
+By default the container never holds SSH keys or git credentials.
+`sbx sync <name> push|pull|fetch` runs the git operation **host-side**, in the project's
+workspace directory, with your host credentials — exactly those three verbs, nothing
+wider. Agents inside the sandbox can commit freely; only a host-side `sbx sync` moves
+anything to or from a remote, which is a deliberate review gate on everything leaving
+the machine.
+
+**Opting out of the gate (c-heavy).** `sbx sync-setup --address <addr>` gives the
+container a *dedicated* key whose `authorized_keys` line is pinned
+`restrict,command="…sbx-sync-exec.ps1…"`, so agents can trigger those same three verbs
+on workspace repos themselves — and nothing else: no shell, no forwarding, no reach for
+your own keys. Read `docs/SYNC.md` first. It covers host sshd setup per platform, and
+the part that isn't obvious: host-side git runs *inside a repo the agent can write*, and
+git executes hooks and config-named programs. sbx pins those off with raceless
+command-line config, but the residual risk is real and documented there. c-lite stays
+the default; `sbx sync-setup --remove` revokes.
 
 ### Blast radius
 
@@ -149,8 +161,10 @@ Every project currently added to the workspace is writable by every session in t
 container at once — wider than v1's "exactly one mounted repo," accepted in exchange for
 cross-project orchestration. Each project stays git-recoverable, and adding a repo is an
 explicit act of exposure. Unchanged from v1: no path from the container to the host OS or
-to any repo that hasn't been added; no SSH keys in the container. `sbx scratch` remains
-the maximally-contained, no-workspace option.
+to any repo that hasn't been added; no SSH keys in the container **unless you opt into
+c-heavy** (`sbx sync-setup`), which adds one forced-command-bounded key and its
+documented trade-offs. `sbx scratch` remains the maximally-contained, no-workspace
+option.
 
 ## Self-hosted development (hacking on sbx from inside sbx)
 
