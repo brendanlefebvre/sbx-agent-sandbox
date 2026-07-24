@@ -18,7 +18,7 @@ c-lite is on by default and needs no setup. Everything below is c-heavy.
 The container gets a dedicated ed25519 keypair. Its line in the host's
 `authorized_keys` is pinned:
 
-```
+```text
 restrict,command="pwsh -NoProfile -File /path/to/sbx-sync-exec.ps1 -WorkspaceDir /Users/you/sbx-ws" ssh-ed25519 AAAA… sbx-sync
 ```
 
@@ -158,8 +158,11 @@ What sbx does about it, in two tiers that are *not* equally strong:
    `core.hooksPath` aimed at an empty directory (this is the big one —
    `.git/hooks/*` fires with no config key at all), plus `core.fsmonitor`,
    `protocol.ext.allow`, `protocol.file.allow`, `core.sshCommand`, `gpg.program`,
-   `core.editor`, `core.pager`, `core.askPass`, and a reset of the multi-valued
-   `credential.helper` list. Command-line config outranks every config file and
+   `core.editor`, `core.askPass`, and a reset of the multi-valued
+   `credential.helper` list. The pager is suppressed with `--no-pager` rather
+   than a `-c core.pager=` pin — there is no portable no-op value, since `cat`
+   doesn't exist on Windows — which outranks config just the same. Command-line
+   config outranks every config file and
    the container cannot edit our argv, so these hold. Where you legitimately
    configure the same key, sbx reads your **global/system** value and re-pins it,
    so hardening never costs you your own setup.

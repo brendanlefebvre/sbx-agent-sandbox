@@ -486,8 +486,12 @@ workaround is no longer needed; the earlier section is retained as history.
 
 ## P7 — c-heavy sync: container→host sshd callback is viable (Windows + macOS)
 
-Probed 2026-07-23 on Windows (wslc, Win32-OpenSSH) AND macOS (OrbStack, Remote
-Login), via `probes/probe-host.ps1` (see `docs/probes/c-heavy-sync-probes.md`).
+Probed 2026-07-23 on Windows (wslc **2.9.4.0**, Win32-OpenSSH) AND macOS
+(OrbStack, Remote Login), via `probes/probe-host.ps1` (see
+`docs/probes/c-heavy-sync-probes.md`). The Windows half rests on wslc-specific
+transport behavior — the bridge gateway, the absent `host.docker.internal` — so
+the version matters here more than most: re-measure it after a preview bump
+rather than assuming this section still holds.
 **Verdict: GO on both** — the SSH forced-command callback works end to end and
 the security invariants hold. Windows details below; macOS notes further down.
 
@@ -520,7 +524,7 @@ of the host address is unreliable** — `/proc/net/route` yields the wslc bridge
 gw, not the host — so the build should let the user pin the address (the WSL
 gateway is the clean host-only path; prefer it over Tailscale).
 
-**Key placement.** the host account is a local Administrator, but
+**Key placement.** The host account is a local Administrator, but
 `C:\ProgramData\ssh\administrators_authorized_keys` does **not exist** and
 sshd reads the per-user `~/.ssh/authorized_keys` (the existing ECDSA key there
 authenticates). So the `administrators_authorized_keys` quirk did not bite
@@ -599,8 +603,10 @@ Fixed:
 - `Get-SbxGitHardeningArgs` — command-line `-c` pins on every sync:
   `core.hooksPath` → an empty host-side dir, plus `core.fsmonitor`,
   `protocol.ext.allow`, `protocol.file.allow`, `core.sshCommand`, `gpg.program`,
-  `core.editor`, `core.pager`, `core.askPass`, and a reset of the multi-valued
-  `credential.helper` list. **Raceless** — command-line config outranks every
+  `core.editor`, `core.askPass`, and a reset of the multi-valued
+  `credential.helper` list — plus `--no-pager`, which is the pager's pin: `cat`
+  doesn't exist on Windows, so `-c core.pager=cat` isn't portable.
+  **Raceless** — command-line config outranks every
   file and the container can't edit our argv. Where the host legitimately sets one
   of these, the value is read from global/system scope and re-pinned, so hardening
   costs the user nothing.

@@ -53,7 +53,8 @@ for the implementation plan.
   dedicated container key pinned `restrict,command="…sbx-sync-exec.ps1…"` lets agents
   trigger the same three verbs themselves. Both go through ONE validator
   (`Resolve-SbxSyncRequest`) — never add a second allowlist. Read `docs/SYNC.md`
-  before touching either, especially the P8 part: host-side git runs in an
+  ("Security model, and its limits") and `docs/FINDINGS.md` P8 before touching
+  either: host-side git runs in an
   agent-writable repo and executes hooks and config-named programs, so
   `Get-SbxGitHardeningArgs` (raceless `-c` pins) is load-bearing security, not
   tidiness. Adding a verb, or dropping a pin, widens a boundary.

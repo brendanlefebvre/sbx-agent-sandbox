@@ -49,12 +49,17 @@ you opt in. After `sbx sync-setup --address <addr>` + `sbx rebuild`:
     `sbx sync clone`, `sbx sync ../secret push`, `ssh -i ~/.ssh/id_sbx_sync
     <user>@<addr> "myrepo push --force"`, and a bare `ssh … <user>@<addr>` (no
     shell). Also `ssh -L 9999:127.0.0.1:22 …` must be refused by `restrict`.
-15. **Hook containment (P8):** `printf '#!/bin/sh\necho HOOK-RAN >&2\n' >
-    /work/<name>/.git/hooks/pre-push; chmod +x` it, then `sbx sync push`. The
-    push must succeed and `HOOK-RAN` must NOT appear. Delete the hook afterward.
-16. **Config denylist (P8):** `git -C /work/<name> config core.sshCommand
-    'sh -c id'` then `sbx sync fetch` → refused with a `FAILED … executes as a
-    program` line naming the key. `git config --unset` it afterward.
+15. **Hook containment (P8):** in the container,
+    `h=/work/<name>/.git/hooks/pre-push; printf '#!/bin/sh\necho HOOK-RAN >&2\n'
+    > "$h"; chmod +x "$h"` — then `sbx sync push`. The push must succeed and
+    `HOOK-RAN` must NOT appear. `rm "$h"` afterward.
+16. **Config denylist (P8):** set the key **from the host**, not the container —
+    a repo-local `git config` write fails inside the sandbox on a wslc bind mount
+    (it can't chmod `config.lock`; see ROADMAP). Host-side:
+    `git -C ~/sbx-ws/<name> config core.sshCommand 'sh -c id'`, then `sbx sync
+    fetch` from the container → refused with a `FAILED … executes as a program`
+    line naming the key. `git -C ~/sbx-ws/<name> config --unset core.sshCommand`
+    afterward.
 17. **Concurrency:** trigger `sbx sync push` from two sessions on the SAME
     project at once — both complete, serialized, neither reports a git index
     lock error.

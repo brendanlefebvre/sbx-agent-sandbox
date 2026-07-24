@@ -155,9 +155,13 @@ device on the LAN.
 
 Paste into `docs/FINDINGS.md` (next free P-number), filling the blanks:
 
-```
+```text
 **P7 — c-heavy sync: container→host sshd callback.** Probed <date> on
-<Windows wslc | macOS OrbStack>, host sshd <Win32-OpenSSH | Remote Login>.
+<Windows wslc <version, e.g. 2.9.4.0> | macOS OrbStack>, host sshd
+<Win32-OpenSSH | Remote Login>.
+(Always record the wslc version: the transport findings below are
+version-sensitive, and FINDINGS.md's file-level default will silently mislabel
+a section that omits it.)
 
 Reachability: <address that worked, e.g. WSL default gateway 172.x.x.1 |
 host.docker.internal | FAILED — nothing reachable>.
