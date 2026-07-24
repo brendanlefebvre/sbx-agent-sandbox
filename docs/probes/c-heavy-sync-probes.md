@@ -51,16 +51,17 @@ moot if an earlier one fails:
   `Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0` then
   `Start-Service sshd; Set-Service sshd -StartupType Automatic`.
 - Ensure `pwsh` and `git` are on PATH for the sshd session.
-- If your account is a local **Administrator**, Win32-OpenSSH ignores
-  `~/.ssh/authorized_keys` and reads `C:\ProgramData\ssh\administrators_authorized_keys`,
-  which must be ACL'd to Administrators + SYSTEM only or sshd silently refuses
-  the key:
+- If your account is a local **Administrator** *and*
+  `C:\ProgramData\ssh\administrators_authorized_keys` exists, Win32-OpenSSH reads
+  that file instead of `~/.ssh/authorized_keys`. It must be ACL'd to
+  Administrators + SYSTEM only or sshd silently refuses the key:
   ```powershell
   $f = "$env:ProgramData\ssh\administrators_authorized_keys"
   icacls $f /inheritance:r /grant "Administrators:F" /grant "SYSTEM:F"
   ```
-  The harness detects the admin case and writes to the right file, but this ACL
-  is on you.
+  Creating that file is a **host-wide** decision — from then on sshd prefers it
+  for every admin account — so neither the harness nor `sbx sync-setup` will
+  create it, and neither changes its ACL. Both are on you.
 
 ### macOS (Remote Login)
 - Enable the built-in sshd: System Settings → General → Sharing → **Remote
@@ -83,11 +84,20 @@ auto-discovery), `-SshUser <name>`, `-Port <n>`, `-KeepArtifacts` to leave the
 throwaway key/line in place for manual poking (undo by hand afterward), and
 `-AuthorizedKeysFile <path>` to force which file the key line is written to.
 
-By default the harness auto-detects the Win32-OpenSSH admin-file quirk: if your
-account is in local Administrators it targets `administrators_authorized_keys`
-(and needs an elevated shell). **If you've disabled that Match block in
-`sshd_config`** so sshd reads the per-user file for everyone, pass
-`-AuthorizedKeysFile "$HOME\.ssh\authorized_keys"` (no elevation needed).
+The harness picks the target file with the shipped `Get-SbxAuthorizedKeysPath`,
+so it qualifies the file `sbx sync-setup` would actually write. On Windows that
+means `C:\ProgramData\ssh\administrators_authorized_keys` **only if that file
+already exists** (then an elevated shell is needed); otherwise the per-user
+`~/.ssh/authorized_keys`.
+
+It will not create the admin file, and it does not touch ACLs — it only warns if
+the existing ACL looks wrong. Creating that file is not a local choice: from then
+on Win32-OpenSSH prefers it for *every* member of local Administrators, which can
+lock out logins that relied on a per-user file. If your account is an admin and
+the file is absent, the harness says so and continues against the per-user file.
+Should auth then fail with `Permission denied (publickey)`, this host has the
+stock `Match Group administrators` block in force; create the admin file yourself
+with the ACL recipe above and re-run, or pass `-AuthorizedKeysFile <path>`.
 
 The harness prechecks the `sshd` service + local port and prints each
 candidate's SSH error, so a failure is legible: `Connection timed out`/`refused`

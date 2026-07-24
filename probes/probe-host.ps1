@@ -62,32 +62,37 @@ function Test-InAdministrators {
 }
 
 function Get-AuthorizedKeysTarget {
-    # Where the pubkey line must live so THIS sshd will honor it. On Windows,
-    # Win32-OpenSSH ignores per-user authorized_keys for members of the local
-    # Administrators group and reads C:\ProgramData\ssh\administrators_authorized_keys
-    # instead (with strict ACLs — see runbook). Elsewhere: ~/.ssh/authorized_keys.
-    if ($AuthorizedKeysFile) {
-        # Explicit override — caller knows which file THIS sshd honors.
-        return [pscustomobject]@{ Path = $AuthorizedKeysFile; Admin = $false; Elevated = $true }
-    }
+    # Decided by the SHIPPED resolver, so the probe qualifies the file the
+    # launcher will actually write. Win32-OpenSSH reads
+    # C:\ProgramData\ssh\administrators_authorized_keys instead of the per-user
+    # file for members of local Administrators — but only where that file EXISTS,
+    # and sbx never creates it: creating it takes precedence for every admin on
+    # the host from then on and can lock out logins that relied on
+    # ~/.ssh/authorized_keys (see Get-SbxAuthorizedKeysPath, and P7, where this
+    # host had no admin file and sshd honored the per-user one).
+    #
+    # An earlier version of this probe picked the admin file for any admin member
+    # and created it. That both mutated the host and qualified a configuration
+    # `sbx sync-setup` would never produce.
+    $path = Get-SbxAuthorizedKeysPath -Override $AuthorizedKeysFile
+    $admin = [IO.Path]::GetFileName($path) -eq 'administrators_authorized_keys'
+    $elevated = $true
     if ($IsWindows) {
         $id = [Security.Principal.WindowsIdentity]::GetCurrent()
-        # MEMBERSHIP, not elevation: sshd picks the file by whether the account is
-        # in local Administrators, regardless of the current token's elevation.
-        # IsInRole() only reports elevation, so it wrongly sends an unelevated
-        # admin shell to the per-user file (which sshd then ignores).
-        $memberOfAdmins = Test-InAdministrators
         $elevated = ([Security.Principal.WindowsPrincipal]$id).IsInRole(
             [Security.Principal.WindowsBuiltInRole]::Administrator)
-        if ($memberOfAdmins) {
-            return [pscustomobject]@{
-                Path     = (Join-Path $env:ProgramData 'ssh/administrators_authorized_keys')
-                Admin    = $true
-                Elevated = $elevated
-            }
+        # MEMBERSHIP, not elevation, is what sshd keys off. Warn rather than act:
+        # if this host's sshd_config carries the stock `Match Group administrators`
+        # block, an admin account's per-user file is ignored and auth will fail
+        # below — with a fix the operator must choose, not one we impose.
+        if (-not $admin -and (Test-InAdministrators)) {
+            Write-Host "  NOTE: this account is in local Administrators and $($env:ProgramData)\ssh\administrators_authorized_keys does not exist." -ForegroundColor Yellow
+            Write-Host "        Using the per-user file (what sbx would use). If auth fails with 'Permission denied (publickey)'," -ForegroundColor Yellow
+            Write-Host "        this sshd has the stock Match-Group-administrators block: create that file by hand with the runbook" -ForegroundColor Yellow
+            Write-Host "        ACL recipe, or re-run with -AuthorizedKeysFile. The probe will not create it for you." -ForegroundColor Yellow
         }
     }
-    return [pscustomobject]@{ Path = (Join-Path $HOME '.ssh/authorized_keys'); Admin = $false; Elevated = $true }
+    return [pscustomobject]@{ Path = $path; Admin = $admin; Elevated = $elevated }
 }
 
 function New-ProbeArtifacts {
@@ -135,16 +140,38 @@ function Install-AuthorizedKey {
     }
     Add-Content -Path $Target.Path -Value $line
     Write-Host "  wrote forced-command line (tag '$TAG') to $($Target.Path)" -ForegroundColor Yellow
-    if ($Target.Admin) {
-        # sshd silently ignores administrators_authorized_keys unless it is owned
-        # by / writable only by Administrators + SYSTEM. Apply that ACL now so the
-        # probe doesn't fail for a reason unrelated to what we're testing.
-        & icacls $Target.Path /inheritance:r /grant '*S-1-5-32-544:F' /grant '*S-1-5-18:F' 2>&1 | Out-Null
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "  WARN: could not set ACL on $($Target.Path) — apply the runbook icacls recipe by hand." -ForegroundColor Yellow
-        } else {
-            Write-Host "  applied Administrators+SYSTEM-only ACL to administrators_authorized_keys" -ForegroundColor DarkGray
+    if ($Target.Admin) { Test-AdminKeyFileAcl -Path $Target.Path }
+}
+
+function Test-AdminKeyFileAcl {
+    # CHECK, never change. sshd silently ignores administrators_authorized_keys
+    # unless only Administrators + SYSTEM can write it, so a wrong ACL would make
+    # the probe fail for a reason unrelated to what it tests — but the file
+    # belongs to the host, and the probe restores contents only. Rewriting the ACL
+    # (the old `icacls /inheritance:r`) left the host permanently altered after a
+    # successful, "clean" run.
+    param([Parameter(Mandatory)][string]$Path)
+    $writers = @()
+    try {
+        $acl = Get-Acl -LiteralPath $Path
+        foreach ($ace in $acl.Access) {
+            if ($ace.AccessControlType -ne 'Allow') { continue }
+            if (-not ($ace.FileSystemRights -band [Security.AccessControl.FileSystemRights]::Write)) { continue }
+            $sid = try { $ace.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value }
+                   catch { "$($ace.IdentityReference)" }
+            if ($sid -notin @('S-1-5-32-544', 'S-1-5-18')) { $writers += "$($ace.IdentityReference)" }
         }
+    }
+    catch {
+        Write-Host "  WARN: could not read the ACL on $Path — if auth fails, check it by hand." -ForegroundColor Yellow
+        return
+    }
+    if ($writers) {
+        Write-Host "  WARN: $Path is writable by $(($writers | Select-Object -Unique) -join ', ')." -ForegroundColor Yellow
+        Write-Host "        sshd ignores this file unless only Administrators and SYSTEM can write it, so auth will likely fail." -ForegroundColor Yellow
+        Write-Host "        Apply the runbook icacls recipe by hand — the probe will not change ACLs on your host." -ForegroundColor Yellow
+    } else {
+        Write-Host "  admin key file ACL looks correct (Administrators + SYSTEM only)" -ForegroundColor DarkGray
     }
 }
 
