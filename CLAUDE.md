@@ -26,7 +26,14 @@ for the implementation plan.
   or you'll debug phantom failures.
 
 ## Conventions
-- Git: feature branches `feat/<slug>`, granular commits, merge to `main` with `--no-ff`; push `main` to the `origin` sync remote. No PRs.
+- Git: feature branches `feat/<slug>` (`docs/<slug>`, `fix/<slug>` where they fit),
+  granular commits. **GitHub is the integration point** — push the branch to the `github`
+  remote and open a PR against `main`; it merges there, not locally. Rebase onto `main`
+  rather than merging it in, so the public history stays linear and each PR reads as a
+  clean series. The NAS `origin` is a downstream mirror: after a PR merges,
+  `git checkout main && git pull github main && git push origin main`.
+  (This repo predates the PR flow — it was solo-and-private and the convention was
+  "merge locally, no PRs". History before mid-2026 reflects that.)
 - All launcher logic is PowerShell 7 (`pwsh`): native Windows paths on Windows (not MSYS
   bash), absolute POSIX paths on macOS.
 - `wslc` is public preview, currently **2.9.4.0** (auto-updated from 2.9.3.0 mid-project);
