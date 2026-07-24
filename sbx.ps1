@@ -1129,7 +1129,30 @@ function Update-SbxAuthorizedKeys {
     # else's) must not merge onto it. WriteAllText for byte-exact control —
     # Out-File would add a BOM that sshd treats as part of the first key.
     $text = if ($kept.Count) { ($kept -join $eol) + $eol } else { '' }
-    [IO.File]::WriteAllText($Path, $text, [Text.UTF8Encoding]::new($false))
+    # Write beside it and swap, rather than truncating in place: an interrupted
+    # write (or a full disk) would otherwise leave a HALF a key file, and this is
+    # the file the user's own sshd logins depend on. The .sbx.bak sidecar only
+    # helps someone who still has a session open.
+    $tmp = "$Path.sbx.tmp"
+    [IO.File]::WriteAllText($tmp, $text, [Text.UTF8Encoding]::new($false))
+    if (-not $IsWindows) { & chmod 600 $tmp }
+    try {
+        if ($existed) {
+            # Replace, not Move: it preserves the DESTINATION's ACL and attributes.
+            # A move would hand the new file the directory's inherited ACL — and
+            # for administrators_authorized_keys, an ACL sshd doesn't like means
+            # it silently ignores every key in it (see Set-SbxAdminKeysAcl).
+            [IO.File]::Replace($tmp, $Path, $null)
+        }
+        else { [IO.File]::Move($tmp, $Path) }
+    }
+    catch {
+        # Some filesystems don't support atomic replace. Losing the swap is worse
+        # than the torn-write window it protects against, so fall back rather than
+        # leaving the user with no authorized_keys at all.
+        [IO.File]::WriteAllText($Path, $text, [Text.UTF8Encoding]::new($false))
+        if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Force }
+    }
     if (-not $IsWindows) { & chmod 600 $Path }
     return [pscustomobject]@{ Path = $Path; Replaced = $replaced; Backup = $(if ($existed) { "$Path.sbx.bak" }) }
 }

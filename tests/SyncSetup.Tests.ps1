@@ -50,6 +50,15 @@ Describe 'Update-SbxAuthorizedKeys' {
         (Get-Content -Raw $script:ak) | Should -Be ($script:mine + "`n")
         $r.Replaced | Should -BeFalse
     }
+    It 'leaves no .sbx.tmp behind, on either the create or the replace path' {
+        # The write goes via a sidecar so an interrupted write can't truncate the
+        # user's only way into their own host. It must not survive the swap.
+        Update-SbxAuthorizedKeys -Path $script:ak -Line $script:mine
+        (Test-Path -LiteralPath "$($script:ak).sbx.tmp") | Should -BeFalse
+        Update-SbxAuthorizedKeys -Path $script:ak -Line $script:mine
+        (Test-Path -LiteralPath "$($script:ak).sbx.tmp") | Should -BeFalse
+        (Get-Content -Raw $script:ak) | Should -Be ($script:mine + "`n")
+    }
     It 'appends without merging onto a file whose last line has NO trailing newline' {
         # P7 bug #1: a naive append merged our entry onto the previous key, which
         # stayed valid with a longer comment while ours silently vanished.

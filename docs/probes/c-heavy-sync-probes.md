@@ -61,7 +61,9 @@ moot if an earlier one fails:
   ```
   Creating that file is a **host-wide** decision — from then on sshd prefers it
   for every admin account — so neither the harness nor `sbx sync-setup` will
-  create it, and neither changes its ACL. Both are on you.
+  create it. That part is on you. The two differ on the ACL: `sync-setup`
+  tightens it on an existing admin file (provisioning you asked for), while the
+  harness is read-only about it and only warns.
 
 ### macOS (Remote Login)
 - Enable the built-in sshd: System Settings → General → Sharing → **Remote
