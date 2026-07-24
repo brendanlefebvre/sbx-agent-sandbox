@@ -21,6 +21,9 @@ for the implementation plan.
 ## Test
 - Unit (pure builder fns):  `pwsh -NoProfile -Command "Invoke-Pester tests -Output Detailed"`
 - Integration (live container):  run `verify/CHECKLIST.md` by hand on this machine.
+- After any `sbx.ps1` change or merge, open host terminals still hold the old dot-sourced
+  functions — start live testing from a fresh terminal or re-dot-source `sbx.ps1` first,
+  or you'll debug phantom failures.
 
 ## Conventions
 - Git: feature branches `feat/<slug>`, granular commits, merge to `main` with `--no-ff`; push `main` to the `origin` sync remote. No PRs.
