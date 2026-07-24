@@ -108,7 +108,14 @@ follow-ups worth considering if c-heavy sees heavy use:
   were set repo-locally by hand). Decide where the identity comes from —
   a baked default vs. injecting the host's `git config user.*` at container
   create/attach time (latter avoids a wrong-author footgun and dovetails with
-  the "agents commit, human pushes" gate in item 1).
+  the "agents commit, human pushes" gate). **Worse than first recorded:** the
+  documented workaround (set `user.name`/`user.email` repo-locally by hand) can
+  itself fail inside sbx — `git config` writes via a `config.lock` whose chmod
+  is refused on a wslc bind mount ("Operation not permitted"), so `.git/config`
+  is effectively read-only there. The working fallback is per-invocation
+  `git -c user.name=… -c user.email=… commit`, which is a miserable thing to ask
+  an agent to remember. Raises the priority of injecting identity at container
+  create time.
 - `Get-SbxVolumeRoot` OrdinalIgnoreCase prefix match (case-sensitive-APFS nit).
 - `Add-SbxProject` creates the workspace dir before the cross-volume check.
 - `Invoke-SbxSync` allowlist is case-insensitive (`-cnotin` if touched).
