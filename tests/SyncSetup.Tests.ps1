@@ -160,7 +160,10 @@ Describe 'Build-SbxMainCreateArgs sync mount' {
     }
 }
 
-Describe 'Invoke-SbxSyncSetup' {
+# Every It below reaches real ssh-keygen — provisioning generates the keypair.
+# Absent (a stripped container, a Windows box without the OpenSSH client), these
+# fail on a missing binary rather than on anything sbx did.
+Describe 'Invoke-SbxSyncSetup' -Skip:(-not (Get-Command ssh-keygen -ErrorAction SilentlyContinue)) {
     BeforeEach {
         $script:syncDir = Join-Path $TestDrive "sync-$([guid]::NewGuid())"
         $script:ak      = Join-Path $TestDrive "ak-$([guid]::NewGuid())"
