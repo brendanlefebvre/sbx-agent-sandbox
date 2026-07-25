@@ -128,7 +128,13 @@ containing `sbx-cheavy-probe` and remove the temp dir it named on startup.
 | `../secret push` | `REJECT` (traversal) |
 | `ghost push` | `REJECT` (not in workspace) |
 | `myrepo; sh` | `REJECT` (extra token / no shell) |
-| `-L`/`-D` forwarding | refused by `restrict` |
+| `-R` remote forwarding | refused by `restrict` |
+
+`-R` and not `-L`/`-D`: only a remote forward is refusable at request time, so
+only it can actually fail. A `-L`/`-D` listener is client-side until something
+connects through it, so a bare flag proves nothing. `restrict` implies
+`no-port-forwarding`, which covers every direction — the assertion just has to
+use the one direction the server gets a say in.
 
 The reject invariants are also unit-tested off-host: `Invoke-Pester tests` on
 any platform exercises `Resolve-SbxSyncRequest` / `Resolve-SbxSyncCommand`
