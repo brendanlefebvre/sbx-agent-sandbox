@@ -176,6 +176,15 @@ What sbx does about it, in two tiers that are *not* equally strong:
 Residual risk, stated plainly:
 
 - The denylist is racy (above), and a denylist can miss a key.
+- **The workspace-child guard is narrowed, not raceless.** sbx refuses to sync
+  through a link, or through anything that isn't a direct child of the workspace
+  — but the container owns the workspace read-write, so any such check describes
+  the past. It is applied twice: once when the request is validated, and again
+  inside the per-project lock immediately before git runs. The second one is what
+  matters; without it the window spanned the entire wait for the lock, which an
+  agent can extend at will by holding a sync open. What remains is the gap
+  between that last check and git opening the directory. Same tier as the
+  denylist: much harder to hit, still not a boundary.
 - `push` sends wherever `remote.origin.url` points, and the agent controls that
   file. c-heavy means an agent can push your repo's contents to a remote of its
   choosing. This is inherent to autonomous sync, not a bug in the transport —
