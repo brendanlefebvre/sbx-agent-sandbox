@@ -37,6 +37,19 @@ Describe 'Build-SbxAuthorizedKeysLine' {
         { Build-SbxAuthorizedKeysLine -PublicKey 'garbage' -ExecPath '/x.ps1' -WorkspaceDir '/ws' } |
             Should -Throw '*not a public key*'
     }
+    It 'refuses a path containing a double quote rather than emitting it raw' {
+        # A `"` closes command=" early. What is left is still a SYNTACTICALLY VALID
+        # authorized_keys line — the key keeps working, with the forced command
+        # truncated or gone, i.e. the container's key stops being restricted.
+        # $env:SBX_WORKSPACE feeds WorkspaceDir, and `"` is legal in a macOS path.
+        { Build-SbxAuthorizedKeysLine -PublicKey $script:pub -ExecPath '/x.ps1' `
+                                      -WorkspaceDir '/Users/me/ws" ssh-ed25519 AAAAAttacker x' } |
+            Should -Throw '*double quote*'
+    }
+    It 'refuses a double quote in the exec path too, not just the workspace' {
+        { Build-SbxAuthorizedKeysLine -PublicKey $script:pub -ExecPath '/o"dd/x.ps1' -WorkspaceDir '/ws' } |
+            Should -Throw '*double quote*'
+    }
 }
 
 Describe 'Update-SbxAuthorizedKeys' {

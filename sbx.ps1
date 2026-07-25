@@ -1046,6 +1046,10 @@ function ConvertTo-SbxSshCommandArg {
     # have to reason about backslash escaping; a path containing spaces gets an
     # inner \"-escaped\" pair, which is what sshd's option parser understands.
     $p = $Path -replace '\\', '/'
+    # A `"` would close command=" early and leave a line sshd still accepts — same
+    # key, forced command truncated or gone, i.e. NOT restricted any more. There is
+    # no escape that sshd's option parser honors here, so refuse the path instead.
+    if ($p.Contains('"')) { throw "sbx: cannot pin a forced command for a path containing a double quote: $Path" }
     if ($p -match '\s') { return "\`"$p\`"" }
     return $p
 }
