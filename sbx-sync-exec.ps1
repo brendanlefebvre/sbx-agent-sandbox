@@ -42,7 +42,11 @@ if (-not $decision.Ok) {
 [Console]::Error.WriteLine("sbx-sync-exec: RUN $($decision.Name) $($decision.Operation)")
 try {
     # Locked: concurrent agents (and the human's own `sbx sync`) serialize per repo.
-    Invoke-SbxSyncGit -Dir $decision.Dir -Operation $decision.Operation
+    # -WorkspaceDir is not decoration: Invoke-SbxSyncGit re-checks containment once
+    # it holds the lock, because the container can swap the validated directory for
+    # a link in the window between. It must measure against the workspace this
+    # request was validated in.
+    Invoke-SbxSyncGit -Dir $decision.Dir -Operation $decision.Operation -WorkspaceDir $WorkspaceDir
 }
 catch {
     # A PowerShell error record over SSH is a wall of ANSI-coloured stack trace the
