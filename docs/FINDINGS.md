@@ -602,7 +602,8 @@ c-heavy changes it from "agent can set a trap" to "agent springs it on demand".
 Fixed:
 - `Get-SbxGitHardeningArgs` — command-line `-c` pins on every sync:
   `core.hooksPath` → an empty host-side dir, plus `core.fsmonitor`,
-  `protocol.ext.allow`, `protocol.file.allow`, `core.sshCommand`, `gpg.program`,
+  `protocol.ext.allow`, `protocol.file.allow`, `protocol.git.allow`,
+  `core.alternateRefsCommand`, `core.sshCommand`, `gpg.program`,
   `core.editor`, `core.askPass`, and a reset of the multi-valued
   `credential.helper` list — plus `--no-pager`, which is the pager's pin: `cat`
   doesn't exist on Windows, so `-c core.pager=cat` isn't portable.
@@ -648,3 +649,60 @@ feature deliberately gives up.
 and answered it well. It did not ask "what does the thing at the far end of the
 transport execute?" When probing a hole shaped like a command allowlist, probe
 the *program the allowlist calls*, not just the allowlist.
+
+## P9 — the two "just move them to the raceless tier" keys: one can't be, one is now
+
+Probed 2026-07-25 against **git 2.52.0.windows.1**, to close the follow-up the PR
+review left open (ROADMAP): promote `core.gitProxy` and
+`core.alternateRefsCommand` out of the advisory denylist into the `-c` pins. The
+recorded blocker was "an empty value may be read as a command to exec rather than
+as unset — verify per key before pinning." Both answers came out different from
+that framing.
+
+**`core.gitProxy` cannot be pinned at all — and the reason is not the empty
+value.** It is *multi-valued* (it takes `for <domain>` suffixes), and the lookup
+takes the **first** match, not the last. So a repo-local value beats our
+command-line one no matter what we pass:
+
+| `-c` override | repo-local proxy still ran? |
+|---|---|
+| *(none — control)* | yes |
+| `-c core.gitProxy=` (empty) | **yes** |
+| `-c core.gitProxy=none` (the documented disable) | **yes** |
+| `-c core.gitProxy=<other program>` | **yes** |
+
+`git -c core.gitProxy= config --get-all core.gitProxy` shows why: the repo's value
+is listed first and ours is *appended* after it. Note this is the opposite of
+`credential.helper`, where an empty value resets the list — same multi-valued
+shape, different semantics. **Pinning it would have been strictly worse than not
+pinning it**: the pin appears in the argv and in the docs, and does nothing.
+
+The reachable defence is indirect. `core.gitProxy` only ever applies to `git://`,
+and `protocol.git.allow` *is* single-valued and does obey the pin — verified to
+beat a repo-local `protocol.git.allow=always`. So `-c protocol.git.allow=never`
+refuses the transport before the proxy is consulted. Verified end to end against
+a repo with a live `core.gitProxy` payload and the denylist deliberately bypassed
+(i.e. the race already lost): control fires the proxy, the shipped pins produce
+`fatal: transport 'git' not allowed` and the payload does not run. Nothing is
+given up — `git://` is unauthenticated, so it cannot carry a push worth making.
+
+**`core.alternateRefsCommand` is reachable, and empty is a true disable.** It
+reads like a serving-side key, and it is not: a clone *from* the repo did **not**
+trigger it, while `fetch` and `pull` *into* the repo both did. The container can
+add `objects/info/alternates` itself, `.git` being agent-writable. `-c
+core.alternateRefsCommand=` stops it running and the fetch still succeeds — git
+falls back to its internal ref listing rather than executing an empty string, so
+the ROADMAP's worry does not apply to this key. Promoted to the raceless tier.
+
+**`diff.external`, the denylist gap in the same review note:** real key, no middle
+segment, so `^(diff|difftool)\..*\.(command|textconv|cmd)$` could never match it.
+Probed as *unreachable* through push/pull/fetch — only `git diff` runs it, which
+the sync path never invokes. Added to the denylist anyway, since a list that
+omits a known exec key is worse than one that over-matches. In the same pass,
+`core.externaldiff` was dropped: it is not a git key at all.
+
+**Method note:** the ROADMAP recorded this as blocked on one question ("what does
+an empty value do?"). For one of the two keys that question was the wrong one
+entirely, and asking only it would have produced a confident, useless pin. When
+a config key's *arity* is unstated, probe `--get-all` and a non-empty override
+before trusting any override at all.
