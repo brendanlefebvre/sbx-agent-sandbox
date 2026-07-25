@@ -176,6 +176,20 @@ Describe 'Get-SbxGitHardeningArgs' {
     ) {
         $script:h | Should -BeLike "*-c $pin*"
     }
+    # core.gitProxy CANNOT be pinned: it is multi-valued and first-match-wins, so a
+    # repo-local value beats our -c even when ours is non-empty (probed, git
+    # 2.52.0). It only applies to git://, so the reachable fix is to refuse the
+    # transport — which IS single-valued and does obey the pin.
+    It 'refuses the git:// transport, the only thing core.gitProxy can hook' {
+        $script:h | Should -BeLike '*-c protocol.git.allow=never*'
+    }
+    It 'pins core.alternateRefsCommand empty — it runs host-side on fetch and pull' {
+        # Empty is the right value here: git falls back to its internal ref listing
+        # rather than executing anything. Asserted as an exact argv element, since
+        # a -BeLike would also pass if some value crept in after the '='.
+        @(Get-SbxGitHardeningArgs -NoHooksDir '/var/empty-hooks') |
+            Should -Contain 'core.alternateRefsCommand='
+    }
     It 'suppresses the pager with --no-pager (core.pager=cat is not portable: no cat on Windows)' {
         $script:h | Should -BeLike '*--no-pager*'
     }
@@ -217,6 +231,11 @@ Describe 'Get-SbxUnsafeGitConfig' {
         @{ key = 'remote.origin.receivepack'; value = 'sh -c evil' }
         @{ key = 'diff.x.textconv';          value = 'sh -c evil' }
         @{ key = 'sequence.editor';          value = 'sh -c evil' }
+        # Real key with NO middle segment, so the diff.*.textconv pattern misses
+        # it. Not reachable through push/pull/fetch (probed: only `git diff` runs
+        # it), but a denylist that silently omits a real exec key is worse than one
+        # that over-matches.
+        @{ key = 'diff.external';            value = 'sh -c evil' }
     ) {
         & git -C $script:repo config $key $value
         Get-SbxUnsafeGitConfig -Dir $script:repo | Should -Contain $key

@@ -822,6 +822,20 @@ function Get-SbxGitHardeningArgs {
     $a.AddRange([string[]]@('-c', 'core.fsmonitor=false'))          # names a program git spawns
     $a.AddRange([string[]]@('-c', 'protocol.ext.allow=never'))      # ext:: URLs ARE a command line
     $a.AddRange([string[]]@('-c', 'protocol.file.allow=user'))      # submodule-from-local-path exec path
+    # core.gitProxy names a program too, and CANNOT be pinned here. Probed against
+    # git 2.52.0: it is multi-valued and first-match-wins, so a repo-local value
+    # beats our `-c` even when ours is non-empty — a pin would be pure false
+    # confidence. It only ever applies to git://, so refuse the transport instead.
+    # protocol.<name>.allow IS single-valued, and this beats a repo-local
+    # `protocol.git.allow=always` (verified). Nothing is lost: git:// is
+    # unauthenticated, so it cannot carry a push worth making.
+    $a.AddRange([string[]]@('-c', 'protocol.git.allow=never'))
+    # Runs HOST-side on fetch and pull whenever the repo has an alternate — which
+    # the container can add, .git being agent-writable. Client-side, despite
+    # reading like a serving-side key (probed: a clone FROM the repo does not
+    # trigger it, a fetch INTO it does). Empty is a true disable: git falls back to
+    # its internal ref listing rather than executing an empty command.
+    $a.AddRange([string[]]@('-c', 'core.alternateRefsCommand='))
 
     # Single-valued: pin the host's own value, or a safe default if unset.
     # core.editor has no portable no-op ('true' is not a Windows command). That is
@@ -875,7 +889,17 @@ function Get-SbxHostGitConfig {
 # friends). Matched case-insensitively against `git config --list --show-scope`
 # restricted to local + worktree scope.
 $script:SbxUnsafeGitConfigPatterns = @(
-    '^core\.(hookspath|sshcommand|fsmonitor|editor|pager|askpass|gitproxy|alternaterefscommand|externaldiff)$'
+    # core.gitproxy stays here and can never leave: it is unpinnable (see
+    # Get-SbxGitHardeningArgs), so this advisory match is the ONLY thing that
+    # looks at it. The raceless half of its defence is protocol.git.allow=never,
+    # which removes the reachability rather than the key.
+    '^core\.(hookspath|sshcommand|fsmonitor|editor|pager|askpass|gitproxy|alternaterefscommand)$'
+    # diff.external is a real key with no middle segment, so the diff.*.textconv
+    # pattern below cannot match it. Probed as unreachable through push/pull/fetch
+    # (only `git diff` runs it) — listed anyway, because a denylist that omits a
+    # known exec key is worse than one that over-matches. core.externaldiff, which
+    # this list used to name, is not a git key at all.
+    '^diff\.external$'
     '^credential(\..*)?\.helper$'
     '^gpg(\..*)?\.program$'
     '^protocol(\..*)?\.allow$'
