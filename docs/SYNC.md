@@ -157,8 +157,9 @@ What sbx does about it, in two tiers that are *not* equally strong:
 1. **Raceless pins.** Every sync runs git with command-line `-c` overrides:
    `core.hooksPath` aimed at an empty directory (this is the big one —
    `.git/hooks/*` fires with no config key at all), plus `core.fsmonitor`,
-   `protocol.ext.allow`, `protocol.file.allow`, `core.sshCommand`, `gpg.program`,
-   `core.editor`, `core.askPass`, and a reset of the multi-valued
+   `protocol.ext.allow`, `protocol.file.allow`, `protocol.git.allow`,
+   `core.sshCommand`, `gpg.program`, `core.editor`, `core.askPass`,
+   `core.alternateRefsCommand`, and a reset of the multi-valued
    `credential.helper` list. The pager is suppressed with `--no-pager` rather
    than a `-c core.pager=` pin — there is no portable no-op value, since `cat`
    doesn't exist on Windows — which outranks config just the same. Command-line
@@ -172,6 +173,15 @@ What sbx does about it, in two tiers that are *not* equally strong:
    `remote.*.receivepack`, …). This is a **speed bump, not a boundary**: the
    container can rewrite `.git/config` between our read and git's. It catches
    accidents and lazy attacks.
+
+   One key sits here permanently rather than by omission. `core.gitProxy` names a
+   program git executes, and **cannot be pinned at all** — it is multi-valued and
+   first-match-wins, so a repo-local value beats a `-c` override even when the
+   override is non-empty. Its raceless defence is therefore indirect: it only ever
+   applies to `git://`, and `protocol.git.allow=never` (tier 1, and single-valued,
+   so the pin does hold) refuses that transport before the proxy is consulted.
+   Nothing is lost — `git://` is unauthenticated and can't carry a push worth
+   making.
 
 Residual risk, stated plainly:
 
