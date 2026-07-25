@@ -104,7 +104,7 @@ sbx-sync-exec: OK myrepo push
 The project defaults to the one containing your cwd; `sbx sync <name> <op>`
 names another. Every other `sbx` verb is host-side only.
 
-Three status lines, all on stderr, all single-line by design — an agent can
+Four status lines, all on stderr, all single-line by design — an agent can
 branch on them without parsing a stack trace:
 
 | Line | Means |
