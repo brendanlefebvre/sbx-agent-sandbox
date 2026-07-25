@@ -108,8 +108,8 @@ Describe 'Invoke-SbxSyncGit locking' {
     It 'runs the op and releases the lock so a second call succeeds' {
         Mock -CommandName git -MockWith { $script:calls++ }
         $script:calls = 0
-        Invoke-SbxSyncGit -Dir $script:repo -Operation 'push' -LockDir $script:lockDir
-        Invoke-SbxSyncGit -Dir $script:repo -Operation 'push' -LockDir $script:lockDir
+        Invoke-SbxSyncGit -Dir $script:repo -Operation 'push' -WorkspaceDir $TestDrive -LockDir $script:lockDir
+        Invoke-SbxSyncGit -Dir $script:repo -Operation 'push' -WorkspaceDir $TestDrive -LockDir $script:lockDir
         $script:calls | Should -Be 2
     }
     It 'times out instead of racing when the lock is already held' {
@@ -119,7 +119,7 @@ Describe 'Invoke-SbxSyncGit locking' {
         $held = [IO.File]::Open($lock, 'OpenOrCreate', 'Write', 'None')
         try {
             Mock -CommandName git -MockWith { throw 'must not run while another sync holds the lock' }
-            { Invoke-SbxSyncGit -Dir $script:repo -Operation 'push' -LockDir $script:lockDir -TimeoutSec 1 } |
+            { Invoke-SbxSyncGit -Dir $script:repo -Operation 'push' -WorkspaceDir $TestDrive -LockDir $script:lockDir -TimeoutSec 1 } |
                 Should -Throw '*timed out*'
         } finally { $held.Dispose() }
     }
@@ -138,25 +138,25 @@ Describe 'Invoke-SbxSyncGit propagates git failure' {
     }
     It 'throws when git exits non-zero' {
         Mock -CommandName git -MockWith { $global:LASTEXITCODE = 1 }
-        { Invoke-SbxSyncGit -Dir $script:repo -Operation 'push' -LockDir $script:lockDir } |
+        { Invoke-SbxSyncGit -Dir $script:repo -Operation 'push' -WorkspaceDir $TestDrive -LockDir $script:lockDir } |
             Should -Throw '*git push failed (exit 1)*'
     }
     It 'still releases the lock, so the next sync is not blocked by a failure' {
         Mock -CommandName git -MockWith { $global:LASTEXITCODE = 1 }
-        { Invoke-SbxSyncGit -Dir $script:repo -Operation 'push' -LockDir $script:lockDir } | Should -Throw
+        { Invoke-SbxSyncGit -Dir $script:repo -Operation 'push' -WorkspaceDir $TestDrive -LockDir $script:lockDir } | Should -Throw
         Mock -CommandName git -MockWith { $global:LASTEXITCODE = 0 }
-        { Invoke-SbxSyncGit -Dir $script:repo -Operation 'push' -LockDir $script:lockDir } | Should -Not -Throw
+        { Invoke-SbxSyncGit -Dir $script:repo -Operation 'push' -WorkspaceDir $TestDrive -LockDir $script:lockDir } | Should -Not -Throw
     }
     It 'does not throw on a clean exit' {
         Mock -CommandName git -MockWith { $global:LASTEXITCODE = 0 }
-        { Invoke-SbxSyncGit -Dir $script:repo -Operation 'fetch' -LockDir $script:lockDir } | Should -Not -Throw
+        { Invoke-SbxSyncGit -Dir $script:repo -Operation 'fetch' -WorkspaceDir $TestDrive -LockDir $script:lockDir } | Should -Not -Throw
     }
     It 'does not read a STALE exit code as a failure' {
         # A mock (or an earlier native call) that never touches $LASTEXITCODE must
         # not make the next sync look like it failed.
         $global:LASTEXITCODE = 9
         Mock -CommandName git -MockWith { }
-        { Invoke-SbxSyncGit -Dir $script:repo -Operation 'pull' -LockDir $script:lockDir } | Should -Not -Throw
+        { Invoke-SbxSyncGit -Dir $script:repo -Operation 'pull' -WorkspaceDir $TestDrive -LockDir $script:lockDir } | Should -Not -Throw
     }
 }
 
@@ -235,7 +235,7 @@ Describe 'Invoke-SbxSyncGit refuses an executable repo-local config' {
         & git init -q $repo
         & git -C $repo config core.sshCommand 'sh -c evil'
         Mock -CommandName Get-SbxGitHardeningArgs -MockWith { @() }
-        { Invoke-SbxSyncGit -Dir $repo -Operation 'push' -LockDir (Join-Path $TestDrive 'l2') } |
+        { Invoke-SbxSyncGit -Dir $repo -Operation 'push' -WorkspaceDir $TestDrive -LockDir (Join-Path $TestDrive 'l2') } |
             Should -Throw '*executes as a program*'
     }
 }
@@ -250,5 +250,49 @@ Describe 'workspace symlink escape' {
         $r = Resolve-SbxSyncRequest -Name 'escape' -Operation 'push' -WorkspaceDir $ws
         $r.Ok     | Should -BeFalse
         $r.Reason | Should -BeLike '*is a link*'
+    }
+}
+
+# Validation happens BEFORE the lock; git runs after it. The container owns the
+# workspace read-write throughout, so the directory it validated is not
+# necessarily the directory git opens. The pre-flight check cannot close this on
+# its own — only a re-check on the far side of the lock can.
+Describe 'workspace path swapped between validation and use' {
+    BeforeEach {
+        $script:ws = Join-Path $TestDrive "race-ws-$([guid]::NewGuid())"
+        $script:outside = Join-Path $TestDrive "race-out-$([guid]::NewGuid())"
+        New-Item -ItemType Directory -Force $script:ws, $script:outside | Out-Null
+        $script:proj = Join-Path $script:ws 'myrepo'
+        New-Item -ItemType Directory -Force $script:proj | Out-Null
+        $script:lockDir = Join-Path $TestDrive "race-locks-$([guid]::NewGuid())"
+    }
+    It 'refuses after the swap, even though the pre-flight validator passed' {
+        # The actual attack, in order: validate, swap, run.
+        $r = Resolve-SbxSyncRequest -Name 'myrepo' -Operation 'push' -WorkspaceDir $script:ws
+        $r.Ok | Should -BeTrue                       # pre-flight saw a real directory
+        Remove-Item -Recurse -Force $script:proj     # ...and the container swaps it
+        New-SbxLink -LinkPath $script:proj -TargetPath $script:outside
+
+        # Sentinel, deliberately sharing no words with the guard's message: a mock
+        # whose text could satisfy the assertion turns "git ran anyway" green.
+        Mock -CommandName git -MockWith { throw 'SENTINEL-GIT-RAN' }
+        Mock -CommandName Get-SbxGitHardeningArgs -MockWith { @() }
+        { Invoke-SbxSyncGit -Dir $r.Dir -Operation 'push' -WorkspaceDir $script:ws -LockDir $script:lockDir } |
+            Should -Throw '*is a link*'
+    }
+    It 'refuses a dir outside the workspace entirely, whatever the caller claims' {
+        Mock -CommandName git -MockWith { throw 'SENTINEL-GIT-RAN' }
+        Mock -CommandName Get-SbxGitHardeningArgs -MockWith { @() }
+        { Invoke-SbxSyncGit -Dir $script:outside -Operation 'push' -WorkspaceDir $script:ws -LockDir $script:lockDir } |
+            Should -Throw '*in the workspace*'
+    }
+    It 'still runs the op when the path is unchanged and legitimate' {
+        # The guard must not cost the happy path — this is the regression that
+        # would make the whole re-check unshippable.
+        Mock -CommandName git -MockWith { $global:LASTEXITCODE = 0 }
+        Mock -CommandName Get-SbxGitHardeningArgs -MockWith { @() }
+        Mock -CommandName Get-SbxUnsafeGitConfig  -MockWith { @() }
+        { Invoke-SbxSyncGit -Dir $script:proj -Operation 'push' -WorkspaceDir $script:ws -LockDir $script:lockDir } |
+            Should -Not -Throw
     }
 }

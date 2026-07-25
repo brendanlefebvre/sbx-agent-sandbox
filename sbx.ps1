@@ -687,6 +687,42 @@ function Stop-SbxMain {
 
 $script:SbxSyncOps = @('push', 'pull', 'fetch')
 
+function Get-SbxWorkspaceChildDenial {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Dir,
+          [Parameter(Mandatory)][string]$WorkspaceDir)
+    # The workspace-containment guard, in ONE place, called TWICE per sync — once
+    # by Resolve-SbxSyncRequest before the lock, once by Invoke-SbxSyncGit after
+    # it. That is not redundancy. The container holds the workspace read-write for
+    # the whole window in between, so it can delete the directory we validated and
+    # drop a link in its place; only the post-lock call is between the attacker and
+    # git. The pre-flight call earns its keep by turning a would-be error into the
+    # structured REJECT the forced command's contract promises.
+    #
+    # Returns a denial reason, or $null when $Dir is a real direct child of the
+    # workspace. A reason, not a throw: the validator needs to answer, not die.
+    $name = Split-Path -Leaf $Dir
+    if (-not (Test-Path -LiteralPath $Dir)) { return "no project '$name' in the workspace" }
+    $item = Get-Item -LiteralPath $Dir -Force
+    # A LINK is never a project. `sbx add` puts real directories here (the link it
+    # leaves behind points the other way, at the origin), so nothing legitimate is
+    # refused — while a link planted by the container would sail through the parent
+    # check below and aim host-side git at any directory on the host.
+    if ($item.LinkType) {
+        return "'$name' is a link, not a workspace project — refusing to sync through it"
+    }
+    # Direct-child gate: the repo's parent must BE the workspace, not merely
+    # contain it somewhere up the tree. Catches `..` escapes that survive the
+    # lexical check in Resolve-SbxSyncRequest. Both sides stay in the caller's
+    # spelling — resolving only one of them would break any user whose workspace
+    # path crosses a link.
+    if (-not (Test-Path -LiteralPath $WorkspaceDir)) { return "no project '$name' in the workspace" }
+    if ($item.Parent.FullName -ne (Get-Item -LiteralPath $WorkspaceDir).FullName) {
+        return "no project '$name' in the workspace"
+    }
+    return $null
+}
+
 function Resolve-SbxSyncRequest {
     [CmdletBinding()]
     param([string]$Name,
@@ -714,25 +750,12 @@ function Resolve-SbxSyncRequest {
         return (& $deny "no project '$Name' in the workspace")
     }
     $dir = Join-Path $WorkspaceDir $Name
-    if (-not (Test-Path -LiteralPath $dir)) {
-        return (& $deny "no project '$Name' in the workspace")
-    }
-    $item = Get-Item -LiteralPath $dir -Force
-    # A LINK in the workspace is never a project. `sbx add` puts real directories
-    # here (the link it leaves behind points the other way, at the origin), so
-    # nothing legitimate is refused — while a symlink planted by the container
-    # (which has the workspace mounted read-write) would otherwise pass the
-    # parent check below and aim host-side git at any directory on the host.
-    if ($item.LinkType) {
-        return (& $deny "'$Name' is a link, not a workspace project — refusing to sync through it")
-    }
-    # Direct-child gate: the repo's parent must BE the workspace, not merely
-    # contain it somewhere up the tree. Catches `..` escapes that survive the
-    # lexical check above. Both sides stay in the caller's spelling — resolving
-    # only one of them would break any user whose workspace path crosses a link.
-    if ($item.Parent.FullName -ne (Get-Item -LiteralPath $WorkspaceDir).FullName) {
-        return (& $deny "no project '$Name' in the workspace")
-    }
+    # Filesystem containment lives in Get-SbxWorkspaceChildDenial, which
+    # Invoke-SbxSyncGit re-runs once it holds the lock. Whatever this call
+    # concludes is advisory by the time git opens the directory — read that
+    # function's note before relying on this one.
+    $denial = Get-SbxWorkspaceChildDenial -Dir $dir -WorkspaceDir $WorkspaceDir
+    if ($denial) { return (& $deny $denial) }
     return [pscustomobject]@{ Ok = $true; Name = $Name; Operation = $canonical; Dir = $dir; Reason = $null }
 }
 
@@ -905,6 +928,7 @@ function Invoke-SbxSyncGit {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Dir,
           [Parameter(Mandatory)][string]$Operation,
+          [string]$WorkspaceDir = (Get-SbxWorkspacePath),
           [string]$LockDir = (Get-SbxLockDir),
           [string[]]$HardeningArgs = (Get-SbxGitHardeningArgs),
           [int]$TimeoutSec = 120)
@@ -930,6 +954,14 @@ function Invoke-SbxSyncGit {
         }
     }
     try {
+        # Re-assert containment now that the lock is held and nothing else can be
+        # mid-sync. Everything Resolve-SbxSyncRequest saw is stale: between its
+        # check and this line the container could have replaced the project with a
+        # link to anywhere on the host, and git would have followed it. Same tier
+        # as the config check below — both re-read state the container owns, as
+        # late as we can manage.
+        $denial = Get-SbxWorkspaceChildDenial -Dir $Dir -WorkspaceDir $WorkspaceDir
+        if ($denial) { throw "sbx: $denial" }
         $unsafe = Get-SbxUnsafeGitConfig -Dir $Dir
         if ($unsafe) {
             throw ("sbx: refusing to sync '$(Split-Path -Leaf $Dir)' — its repo-local git config sets " +
@@ -964,7 +996,10 @@ function Invoke-SbxSync {
     # an SSH forced command — see sbx-sync-exec.ps1.
     $d = Resolve-SbxSyncRequest -Name $Name -Operation $Operation -WorkspaceDir $WorkspaceDir
     if (-not $d.Ok) { throw "sbx: $($d.Reason)" }
-    Invoke-SbxSyncGit -Dir $d.Dir -Operation $d.Operation
+    # Pass the workspace on: Invoke-SbxSyncGit re-checks containment under the lock
+    # and must measure against the SAME workspace this request was validated in,
+    # not whatever $env:SBX_WORKSPACE says by then.
+    Invoke-SbxSyncGit -Dir $d.Dir -Operation $d.Operation -WorkspaceDir $WorkspaceDir
 }
 
 # ---- c-heavy: SSH forced-command callback (ROADMAP 1; probed in FINDINGS P7) ---
