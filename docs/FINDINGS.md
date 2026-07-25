@@ -614,9 +614,25 @@ Fixed:
   exec key whose name can't be pinned in advance (arbitrary middle segment).
   **Advisory only**: the container can rewrite `.git/config` between our read and
   git's. Recorded as a speed bump, not a boundary.
-- `Resolve-SbxSyncRequest` now rejects any workspace entry that is a link. `sbx
-  add` only ever creates real directories in the workspace (the link it leaves
-  points the other way, at the origin), so nothing legitimate is refused.
+- `Get-SbxWorkspaceChildDenial` rejects any workspace entry that is a link, or
+  that isn't a direct child. `sbx add` only ever creates real directories in the
+  workspace (the link it leaves points the other way, at the origin), so nothing
+  legitimate is refused. **One implementation, deliberately called twice** — by
+  `Resolve-SbxSyncRequest` before the lock and by `Invoke-SbxSyncGit` after it.
+  The pre-flight call alone was NOT enough (see the correction below); it only
+  buys the structured `REJECT` the forced command's contract promises.
+
+**Correction (2026-07-25), the link guard was racy.** As first shipped the check
+ran only in `Resolve-SbxSyncRequest`, which validates a path string that
+`Invoke-SbxSyncGit` does not use until it has acquired the per-project lock. The
+container owns the workspace read-write for that entire window — and can widen it
+on demand by holding a concurrent sync open, since the victim then blocks on the
+lock. Reproduced in `tests/Sync.Tests.ps1` ('workspace path swapped between
+validation and use'): validate a real project, delete it, drop a link in its
+place, and host git follows the link. Now re-checked inside the lock, immediately
+before git runs. **Still not raceless** — the gap between the last check and git
+opening the directory remains, which is the same tier as the config denylist and
+is recorded in `docs/SYNC.md`.
 
 Verified after the fix: the pre-push hook stays on disk and executable, the push
 succeeds, and the hook does not fire.
