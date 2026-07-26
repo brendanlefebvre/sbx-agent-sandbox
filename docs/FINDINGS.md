@@ -706,3 +706,72 @@ an empty value do?"). For one of the two keys that question was the wrong one
 entirely, and asking only it would have produced a confident, useless pin. When
 a config key's *arity* is unstated, probe `--get-all` and a non-empty override
 before trusting any override at all.
+
+## P10 — c-heavy live verification after the client-file extraction (Windows/wslc)
+
+Verified 2026-07-26 on this host, after moving the in-container client out of the
+`Sandboxfile` printf into `sbx-sync-client.sh` + `COPY`, and after the same day's
+guard/pin changes.
+
+**`COPY` works on wslc.** It was the image's first build-context dependency —
+nothing had used `COPY`/`ADD` before, `sbx-agent-status.sh` being piped in at
+runtime instead. Build step `[ 9/11] COPY sbx-sync-client.sh /usr/local/bin/sbx`
+succeeded with no ceremony. In-image checks: mode `-rwxrwxrwx`, shebang `#!/bin/sh`
+with **0 CR bytes** in the whole file (`.gitattributes`' `*.sh text eol=lf` doing
+its job), `sh -n` clean, and all four client error paths correct with the
+em-dashes rendering (the image's `C.UTF-8` locale holding).
+
+**Reachability drifts — re-derive it, don't trust a recorded address.** P7
+recorded the WSL vEthernet gateway as `172.20.240.1`; today the same interface is
+`172.25.96.1`. It moves across reboots, so `sbx sync-setup --address` is right to
+demand it explicitly. Confirmed again this run: the wslc bridge gateway
+`172.17.0.1` (what `/proc/net/route` yields) is **refused**, `host.docker.internal`
+does not resolve, the LAN IP times out from the container. vEthernet and Tailscale
+both reached publickey auth; vEthernet used, per P7's preference for the host-only
+path.
+
+**Full matrix passed end to end** from inside `sbx-main`: `fetch` and `pull` ran
+host-side git and reported `OK`; `clone`, `push --force`, `../secret`, and `ghost`
+were each refused with a structured `REJECT`. Note `push --force` is refused by
+the HOST validator (as an invalid *operation*, the client having passed exactly
+two tokens) — the layering works as designed rather than both layers guessing.
+
+**The symlink guard, tested the way the threat model states it — and a platform
+subtlety.** The container CAN plant a link in the workspace (`ln -s` inside
+`/work` succeeds), so the premise holds on wslc. Two cases, and they behave
+differently host-side:
+
+| Container-created link | Host-side `Get-Item` | Guard result |
+|---|---|---|
+| `ln -s sbx-dev /work/evil2` (relative, resolves) | `DirectoryInfo`, `LinkType=SymbolicLink`, `Target=sbx-dev`, `Parent` = the workspace | refused: *"is a link, not a workspace project"* ✅ |
+| `ln -s /etc /work/evil-link` (absolute, container-only target) | **`FileInfo`, `LinkType` EMPTY**, `Length=0`, `Attributes=Archive, ReparsePoint` | refused — but as *"no project … in the workspace"* |
+
+The exploitable case is the first one, and the `LinkType` check catches it
+properly (verified live through the real forced command, not just in unit tests).
+
+The second is worth knowing about anyway: **`LinkType` is empty for a
+container-created reparse point whose target does not exist host-side**, so
+`LinkType` alone is not a complete link test on this platform — `Attributes`
+carries `ReparsePoint` when `LinkType` does not. That case is refused today only
+because the item comes back as a `FileInfo`, which has no `.Parent`, so the
+direct-child comparison sees `$null`. Correct outcome, accidental mechanism: the
+same call **throws** under `Set-StrictMode -Version Latest` ("The property
+'Parent' cannot be found on this object"). Nothing in sbx enables StrictMode, so
+this was not a live failure — it was the ROADMAP's deferred null-ref minor, shown
+here to be reachable by the container rather than hypothetical.
+
+**Fixed the same day.** `Get-SbxWorkspaceChildDenial` now denies on
+`Attributes -band ReparsePoint` as well as `LinkType`, and checks
+`-isnot [IO.DirectoryInfo]` explicitly instead of inferring non-directory-ness
+from a `$null` property read. Observable in the live matrix: the container-only
+link went from *"no project 'evil4'"* to *"'evil4' is a link, not a workspace
+project"* — it is now refused by the link check that was meant to catch it, not by
+the side effect of a missing property.
+
+**One more thing this shook out.** Provisioning c-heavy on a host broke two unit
+tests that had nothing to do with it: `Build-SbxMainCreateArgs` reads
+`Get-SbxProvisionedSyncDir` by default, so two tests in `Main.Tests.ps1` were
+describing *this host's* provisioning state rather than a fixed input — a third
+mount appeared and a Windows path reached the POSIX converter. They now pass
+`-SyncDir $null`. Worth remembering when adding tests around any builder whose
+defaults read `$HOME`: they pass until the feature they ignore gets turned on.
