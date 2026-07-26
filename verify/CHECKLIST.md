@@ -48,7 +48,14 @@ you opt in. After `sbx sync-setup --address <addr>` + `sbx rebuild`:
 14. **Negatives, from inside the container** — each must be refused, not run:
     `sbx sync clone`, `sbx sync ../secret push`, `ssh -i ~/.ssh/id_sbx_sync
     <user>@<addr> "myrepo push --force"`, and a bare `ssh … <user>@<addr>` (no
-    shell). Also `ssh -L 9999:127.0.0.1:22 …` must be refused by `restrict`.
+    shell). For forwarding use a **remote** forward,
+    `ssh -R 19999:127.0.0.1:22 -i ~/.ssh/id_sbx_sync <user>@<addr> "myrepo fetch"`,
+    which must report `remote port forwarding failed` / `administratively
+    prohibited`. Not `-L`/`-D`: those are client-side listeners until something
+    connects through them, so a bare flag can never fail and the check would pass
+    whether `restrict` were there or not. `restrict` implies `no-port-forwarding`
+    and covers every direction — the assertion just has to use the one direction
+    the server gets a say in.
 15. **Hook containment (P8):** in the container,
     `h=/work/<name>/.git/hooks/pre-push; printf '#!/bin/sh\necho HOOK-RAN >&2\n'
     > "$h"; chmod +x "$h"` — then `sbx sync push`. The push must succeed and
