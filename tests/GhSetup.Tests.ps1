@@ -67,3 +67,22 @@ Describe 'Write-SbxGhToken' {
         $bytes[0] | Should -Be ([byte][char]'g')
     }
 }
+
+Describe 'Build-SbxMainCreateArgs gh mount' {
+    It 'omits the token mount when c-gh is not provisioned' {
+        $a = Build-SbxMainCreateArgs -WorkspacePath '/Users/me/sbx-ws' -SyncDir $null -GhDir $null -Posix
+        ($a -join ' ') | Should -Not -BeLike '*gh-ro*'
+    }
+    It 'mounts the gh dir read-only at the entrypoint staging path when provisioned' {
+        $a = Build-SbxMainCreateArgs -WorkspacePath '/Users/me/sbx-ws' -SyncDir $null -GhDir '/Users/me/.sbx/gh' -Posix
+        ($a -join ' ') | Should -BeLike '*-v /Users/me/.sbx/gh:/home/agent/.gh-ro:ro*'
+        # The workspace mount and the image/command must still come last.
+        $a[-3..-1] | Should -Be @('sbx:latest', 'sleep', 'infinity')
+    }
+    It 'mounts both sync and gh dirs together when both are provisioned' {
+        $a = Build-SbxMainCreateArgs -WorkspacePath '/Users/me/sbx-ws' `
+             -SyncDir '/Users/me/.sbx/sync' -GhDir '/Users/me/.sbx/gh' -Posix
+        ($a -join ' ') | Should -BeLike '*ssh-ro*'
+        ($a -join ' ') | Should -BeLike '*gh-ro*'
+    }
+}

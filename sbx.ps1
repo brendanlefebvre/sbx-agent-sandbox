@@ -585,6 +585,7 @@ function Build-SbxMainCreateArgs {
           [string]$AuthVolume = 'sbx-claude-auth',
           [string]$Name = 'sbx-main',
           [string]$SyncDir = (Get-SbxProvisionedSyncDir),
+          [string]$GhDir = (Get-SbxProvisionedGhDir),
           [switch]$Posix)
     $ws = ConvertTo-SbxMountPath -HostPath $WorkspacePath -Posix:$Posix
     $a = [System.Collections.Generic.List[string]]::new()
@@ -596,6 +597,12 @@ function Build-SbxMainCreateArgs {
     if ($SyncDir) {
         $sd = ConvertTo-SbxMountPath -HostPath $SyncDir -Posix:$Posix
         $a.AddRange([string[]]@('-v',"${sd}:/home/agent/.ssh-ro:ro"))
+    }
+    # c-gh: the GitHub PAT, read-only, ONLY when gh-setup has run. Lands at
+    # .gh-ro, whose entrypoint feeds it to `gh auth login` — see Sandboxfile.
+    if ($GhDir) {
+        $gd = ConvertTo-SbxMountPath -HostPath $GhDir -Posix:$Posix
+        $a.AddRange([string[]]@('-v',"${gd}:/home/agent/.gh-ro:ro"))
     }
     $a.AddRange([string[]]@('-v',"${ws}:/work",'-w','/work',$Image,'sleep','infinity'))
     return $a.ToArray()
