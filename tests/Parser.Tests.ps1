@@ -106,3 +106,22 @@ Describe 'ConvertFrom-SbxArgs — sync-setup (c-heavy)' {
         (ConvertFrom-SbxArgs @('--tab')).Window               | Should -Be 'tab'
     }
 }
+
+Describe 'ConvertFrom-SbxArgs — gh-setup (c-gh)' {
+    It 'parses the bare subcommand' {
+        (ConvertFrom-SbxArgs @('gh-setup')).Command | Should -Be 'gh-setup'
+    }
+    It 'consumes --token-file' {
+        $o = ConvertFrom-SbxArgs @('gh-setup', '--token-file', '/tmp/tok')
+        $o.TokenFile | Should -Be '/tmp/tok'
+    }
+    It 'parses --remove' {
+        (ConvertFrom-SbxArgs @('gh-setup', '--remove')).Remove | Should -BeTrue
+    }
+    It 'errors when --token-file is last' {
+        { ConvertFrom-SbxArgs @('gh-setup', '--token-file') } | Should -Throw '*expects a value*'
+    }
+    It 'still rejects genuinely unknown options' {
+        { ConvertFrom-SbxArgs @('gh-setup', '--yolo') } | Should -Throw '*Unknown option*'
+    }
+}

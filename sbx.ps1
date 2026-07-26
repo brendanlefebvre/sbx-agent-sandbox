@@ -10,6 +10,8 @@ function ConvertFrom-SbxArgs {
         # sync-setup only (see Invoke-SbxSyncSetup); null means "use the default".
         Address = $null; SshUser = $null; Port = $null; AuthorizedKeysFile = $null
         PrintOnly = $false; Remove = $false
+        # gh-setup only (see Invoke-SbxGhSetup).
+        TokenFile = $null
     }
     $positional = [System.Collections.Generic.List[string]]::new()
 
@@ -22,6 +24,7 @@ function ConvertFrom-SbxArgs {
         '--user'            = 'SshUser'
         '--port'            = 'Port'
         '--authorized-keys' = 'AuthorizedKeysFile'
+        '--token-file'      = 'TokenFile'
     }
     for ($i = 0; $i -lt $Arguments.Count; $i++) {
         $arg = $Arguments[$i]
@@ -57,6 +60,7 @@ function ConvertFrom-SbxArgs {
             $opts.Command = 'sync'; $opts.Target = $positional[1]; $opts.Operation = $positional[2]
         }
         'sync-setup' { $opts.Command = 'sync-setup' }
+        'gh-setup'   { $opts.Command = 'gh-setup' }
         'ls'      { $opts.Command = 'ls' }
         'rebuild' { $opts.Command = 'rebuild' }
         'stop'    { $opts.Command = 'stop' }
@@ -202,6 +206,11 @@ function Invoke-Sbx {
             }
             if ($o.Port) { $p.Port = [int]$o.Port }
             return Invoke-SbxSyncSetup @p
+        }
+        'gh-setup' {
+            $p = @{ Remove = [bool]$o.Remove }
+            if ($o.TokenFile) { $p.TokenFile = $o.TokenFile }
+            return Invoke-SbxGhSetup @p
         }
         'rebuild' { return Invoke-SbxRebuild -Runtime $runtime }
         'stop'    { return Stop-SbxMain -Runtime $runtime }
