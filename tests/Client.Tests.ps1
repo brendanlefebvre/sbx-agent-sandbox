@@ -1,5 +1,5 @@
 BeforeAll {
-    $script:client = (Resolve-Path "$PSScriptRoot/../sbx-sync-client.sh").Path
+    $script:client = (Resolve-Path "$PSScriptRoot/../sbx-client.sh").Path
     $script:sh = (Get-Command sh -ErrorAction SilentlyContinue)?.Source
 
     # Runs the real client under a POSIX shell with the conf/key/PATH it would see

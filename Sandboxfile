@@ -90,19 +90,18 @@ RUN printf '\nHost *\n    StrictHostKeyChecking accept-new\n' >> /etc/ssh/ssh_co
       > /usr/local/bin/sbx-entrypoint \
  && chmod +x /usr/local/bin/sbx-entrypoint
 
-# c-heavy sync client. Inside the sandbox `sbx sync push` is the ONE host
-# operation an agent can trigger: it SSHes back to the host with the dedicated
-# key (mounted at .ssh-ro by `sbx sync-setup`, copied to ~/.ssh above), whose
-# authorized_keys line pins it to sbx-sync-exec — three verbs on workspace repos,
-# no shell, no forwarding. Host address/user/port are read LIVE from the mounted
-# sync.conf, so re-pointing the host doesn't need a container rebuild.
+# In-container sbx client: `sbx sync <op>` (c-heavy, unchanged — see the sync
+# section above) and `sbx pr create`/`sbx pr respond` (c-gh, see docs/GH.md).
+# Neither is a security boundary in the SSH-forced-command sense; sync's is the
+# host-side validator at the far end, and gh's is the PAT's own github.com
+# scopes — this script is convenience routing in both cases.
 #
-# The script is a real file in the repo, not a printf here: it is the one host
-# operation c-heavy grants an agent, so it gets an `sh -n` syntax gate and unit
-# tests (tests/SyncClient.Tests.ps1) like any other code — and is now shellcheck-
-# able, though no host in this project has shellcheck installed yet. chmod
-# separately rather than COPY --chmod, since git on Windows drops the exec bit.
-COPY sbx-sync-client.sh /usr/local/bin/sbx
+# The script is a real file in the repo, not a printf here: it gets an `sh -n`
+# syntax gate and unit tests (tests/Client.Tests.ps1) like any other code — and
+# is shellcheck-able, though no host in this project has shellcheck installed
+# yet. chmod separately rather than COPY --chmod, since git on Windows drops
+# the exec bit.
+COPY sbx-client.sh /usr/local/bin/sbx
 RUN chmod +x /usr/local/bin/sbx
 
 # Claude's global config file is normally ~/.claude.json — a sibling of the
