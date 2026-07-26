@@ -259,6 +259,36 @@ Describe 'Invoke-SbxSyncGit refuses an executable repo-local config' {
     }
 }
 
+Describe 'workspace entry that is not a directory' {
+    BeforeEach {
+        $script:ws = Join-Path $TestDrive "nd-$([guid]::NewGuid())"
+        New-Item -ItemType Directory -Force $script:ws | Out-Null
+        $script:file = Join-Path $script:ws 'notarepo'
+        Set-Content -LiteralPath $script:file -Value 'x'
+    }
+    It 'denies a plain file, without leaning on a property FileInfo does not have' {
+        # It denied before this test existed — but only because FileInfo has no
+        # .Parent, so the direct-child comparison saw $null. StrictMode exposes that
+        # as the accident it was: the same call threw "The property 'Parent' cannot
+        # be found on this object" instead of returning a denial. Live-observed on
+        # wslc (FINDINGS P10): a container-planted reparse point whose target is
+        # container-only comes back as exactly this shape.
+        Set-StrictMode -Version Latest
+        try {
+            Get-SbxWorkspaceChildDenial -Dir $script:file -WorkspaceDir $script:ws |
+                Should -BeLike '*no project*'
+        }
+        finally { Set-StrictMode -Off }
+    }
+    It 'still admits an ordinary directory under StrictMode' {
+        $d = Join-Path $script:ws 'realrepo'
+        New-Item -ItemType Directory -Force $d | Out-Null
+        Set-StrictMode -Version Latest
+        try { Get-SbxWorkspaceChildDenial -Dir $d -WorkspaceDir $script:ws | Should -BeNullOrEmpty }
+        finally { Set-StrictMode -Off }
+    }
+}
+
 Describe 'workspace symlink escape' {
     It 'refuses a link planted in the workspace, which would aim host git anywhere' {
         # The container has the workspace mounted read-write, so it can create this.
