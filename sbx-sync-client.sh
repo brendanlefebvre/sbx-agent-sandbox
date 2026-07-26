@@ -16,7 +16,7 @@ case "${1:-}" in
     echo "  credentials. Project defaults to the one containing your cwd." >&2
     echo "  Every other sbx command is host-side only — run it on the host." >&2
     exit 0 ;;
-  *) die "unknown command: $1 — inside the sandbox only <sbx sync> exists; run other sbx commands on the host" ;;
+  *) die "unknown command: $1 — inside the sandbox only 'sbx sync' exists; run other sbx commands on the host" ;;
 esac
 case $# in
   1) name=""; op="$1" ;;
@@ -25,17 +25,17 @@ case $# in
 esac
 # Provisioning first: otherwise an unconfigured sandbox complains about the
 # cwd, sending you to look in entirely the wrong place.
-[ -f "$conf" ] || die "c-heavy sync is not provisioned — run <sbx sync-setup --address ...> on the host, then <sbx rebuild>"
-[ -f "$key" ] || die "sync key missing at $key — run <sbx rebuild> on the host"
+[ -f "$conf" ] || die "c-heavy sync is not provisioned — run 'sbx sync-setup --address ...' on the host, then 'sbx rebuild'"
+[ -f "$key" ] || die "sync key missing at $key — run 'sbx rebuild' on the host"
 if [ -z "$name" ]; then
   case "$PWD" in
     /work/*) name=$(printf %s "${PWD#/work/}" | cut -d/ -f1) ;;
     *) die "not inside a project (cwd $PWD) — name it: sbx sync <project> $op" ;;
   esac
 fi
-host=$(sed -n "s/^host=//p" "$conf" | head -1)
-user=$(sed -n "s/^user=//p" "$conf" | head -1)
-port=$(sed -n "s/^port=//p" "$conf" | head -1)
+host=$(sed -n 's/^host=//p' "$conf" | head -1)
+user=$(sed -n 's/^user=//p' "$conf" | head -1)
+port=$(sed -n 's/^port=//p' "$conf" | head -1)
 [ -n "$host" ] || die "no host= in $conf"
 [ -n "$user" ] || die "no user= in $conf"
 [ -n "$port" ] || port=22
