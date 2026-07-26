@@ -1,6 +1,6 @@
 # sbx
 
-Run `claude --dangerously-skip-permissions` inside a shared sandbox container
+A sandbox for agent orchestration: run `claude --dangerously-skip-permissions` inside a shared sandbox container
 (`wslc` on Windows, `docker` on macOS) whose only writable host surface is the
 projects you've explicitly added to its workspace.
 
@@ -59,7 +59,7 @@ project you've added, instead of a fresh throwaway container per repo.
 | `sbx ls`                | Workspace projects: name, original host path, whether a tmux session is live.                   |
 | `sbx rm <name>`         | Kill the project's tmux session; move the repo back to its origin; remove the link.              |
 | `sbx sync <name> <op>`  | **Host-side** git `push`/`pull`/`fetch` in the project's workspace dir, with host credentials.   |
-| `sbx sync-setup --address <addr>` | Opt in to **c-heavy**: provision the container's dedicated key so agents can trigger those same three verbs themselves. `--print-only`, `--remove`. See `docs/SYNC.md`. |
+| `sbx sync-setup --address <addr>` | Opt in to **c-heavy**: provision the container's dedicated key so agents can trigger those same three verbs themselves. `--user`/`--port` if they differ from your login/22, `--authorized-keys <path>` to force which file gets written, `--print-only`, `--remove`. See `docs/SYNC.md`. |
 | `sbx rebuild`           | Confirm, then destroy and recreate `sbx-main` from `sbx:latest` (workspace/history survive).     |
 | `sbx stop`              | Stop the `sbx-main` container.                                                                    |
 | `sbx status`            | One-glance fleet view: per tmux window, idle time, claude liveness, live status line (stalest first). `SBX_IDLE_WARN=<min>` flags stale sessions. See `docs/sbx-agent-status.md`. |
