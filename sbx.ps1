@@ -1340,6 +1340,54 @@ function Test-SbxInAdministrators {
     return @($id.Groups) -contains $sid
 }
 
+# ---- c-gh: GitHub CLI token provisioning (ROADMAP; see docs/GH.md) -------------
+#
+# Unlike c-heavy sync, there is no host-side forced-command validator possible
+# here — the GitHub REST/GraphQL API has no equivalent primitive. The PAT's own
+# scopes (repos + Contents/Pull-requests permissions, chosen on github.com when
+# you create it) ARE the boundary. This section only gets the token onto disk
+# and mounted; it enforces nothing.
+
+function Get-SbxGhDir {
+    [CmdletBinding()]
+    param([string]$Override = $env:SBX_GH_DIR)
+    # Holds only the token file. Bind-mounted read-only into sbx-main, same
+    # staging pattern as Get-SbxSyncDir.
+    if ($Override) { return $Override }
+    return (Join-Path $HOME '.sbx/gh')
+}
+
+function Get-SbxGhTokenPath {
+    [CmdletBinding()]
+    param([string]$GhDir = (Get-SbxGhDir))
+    return (Join-Path $GhDir 'token')
+}
+
+function Get-SbxProvisionedGhDir {
+    [CmdletBinding()]
+    param([string]$GhDir = (Get-SbxGhDir))
+    # $null unless c-gh is actually provisioned — callers use it to decide
+    # whether sbx-main gets the token mount at all. No setup, no token in the
+    # sandbox.
+    if (Test-Path -LiteralPath (Get-SbxGhTokenPath -GhDir $GhDir)) { return $GhDir }
+    return $null
+}
+
+function Write-SbxGhToken {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$TokenFile, [string]$GhDir = (Get-SbxGhDir))
+    if (-not (Test-Path -LiteralPath $TokenFile)) { throw "sbx: token file not found: $TokenFile" }
+    $token = (Get-Content -Raw -LiteralPath $TokenFile).Trim()
+    if (-not $token) { throw "sbx: token file is empty: $TokenFile" }
+    if (-not (Test-Path -LiteralPath $GhDir)) { New-Item -ItemType Directory -Force $GhDir | Out-Null }
+    $path = Get-SbxGhTokenPath -GhDir $GhDir
+    # No BOM, no trailing newline: `gh auth login --with-token` reads stdin
+    # verbatim and a stray CR/newline risks being read as part of the token.
+    [IO.File]::WriteAllText($path, $token, [Text.UTF8Encoding]::new($false))
+    if (-not $IsWindows) { & chmod 600 $path }
+    return $path
+}
+
 function Get-SbxLiveSessions {
     [CmdletBinding()]
     param([string]$Runtime = (Resolve-SbxRuntime))
