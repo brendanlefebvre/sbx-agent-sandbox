@@ -144,5 +144,7 @@ dropped, not being a git key at all.
 - `Add-SbxProject` creates the workspace dir before the cross-volume check.
 - `Invoke-SbxSync` allowlist is case-insensitive (`-cnotin` if touched).
 - `Get-SbxContainerName` `-Path`/`-Override` params are vestigial post-v2.
-- Attach containment check would null-ref on a plain *file* in the workspace
-  (`-PathType Container` tweak when next touched).
+- ~~Attach containment check would null-ref on a plain *file* in the workspace~~ —
+  fixed 2026-07-26 in `Get-SbxWorkspaceChildDenial` (explicit `DirectoryInfo`
+  check plus a `ReparsePoint` attribute test, since wslc surfaces some
+  container-planted links with an empty `LinkType`). See FINDINGS P10.
