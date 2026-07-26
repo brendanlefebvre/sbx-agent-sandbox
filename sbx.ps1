@@ -1395,6 +1395,36 @@ function Write-SbxGhToken {
     return $path
 }
 
+function Invoke-SbxGhSetup {
+    [CmdletBinding()]
+    param([string]$TokenFile, [switch]$Remove, [string]$GhDir = (Get-SbxGhDir))
+    if ($Remove) {
+        Remove-Item -LiteralPath $GhDir -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Host "sbx: c-gh local token removed from $GhDir." -ForegroundColor Yellow
+        Write-Host "sbx: this does NOT revoke the token on GitHub — do that at https://github.com/settings/tokens if it's no longer needed." -ForegroundColor Yellow
+        Write-Host "sbx: run 'sbx rebuild' to drop the token mount from the running sandbox." -ForegroundColor Cyan
+        return
+    }
+    if (-not $TokenFile) {
+        throw @"
+sbx: gh-setup needs a fine-grained GitHub PAT: sbx gh-setup --token-file <path>
+     Create one at https://github.com/settings/personal-access-tokens/new scoped
+     to only the repos you want, with ONLY:
+       Contents:      Read and write
+       Pull requests: Read and write
+     Also add a branch-protection rule on the target repo requiring a human
+     review before merge — a token can't be scoped to block merge on its own.
+     See docs/GH.md.
+"@
+    }
+    $path = Write-SbxGhToken -TokenFile $TokenFile -GhDir $GhDir
+    Write-Host "sbx: c-gh provisioned." -ForegroundColor Green
+    Write-Host "  token       $path (mounted read-only into sbx-main)"
+    Write-Host "  agents get  gh + git push authenticated as this token, on whatever repos/permissions you scoped it to on github.com." -ForegroundColor DarkGray
+    Write-Host "sbx: run 'sbx rebuild' so sbx-main picks up the token, then 'sbx pr create' / 'sbx pr respond' from inside a project." -ForegroundColor Cyan
+    return [pscustomobject]@{ Token = $path }
+}
+
 function Get-SbxLiveSessions {
     [CmdletBinding()]
     param([string]$Runtime = (Resolve-SbxRuntime))
