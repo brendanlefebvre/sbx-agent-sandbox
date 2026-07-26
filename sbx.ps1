@@ -708,9 +708,19 @@ function Get-SbxWorkspaceChildDenial {
     # leaves behind points the other way, at the origin), so nothing legitimate is
     # refused — while a link planted by the container would sail through the parent
     # check below and aim host-side git at any directory on the host.
-    if ($item.LinkType) {
+    # Attributes AND LinkType: on wslc, a link the container plants whose target is
+    # container-only (`ln -s /etc /work/x`) surfaces host-side with LinkType EMPTY
+    # but ReparsePoint set, so LinkType alone is not a complete test on this
+    # platform (FINDINGS P10). The reachable case — a relative link that resolves
+    # host-side — does report LinkType, and is caught either way.
+    if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -or $item.LinkType) {
         return "'$name' is a link, not a workspace project — refusing to sync through it"
     }
+    # A project is a directory. Checked explicitly rather than inferred from the
+    # parent comparison below: a FileInfo has no .Parent, so that comparison used to
+    # deny a plain file only by reading $null off a property that isn't there —
+    # correct outcome, accidental mechanism, and a throw under StrictMode.
+    if ($item -isnot [IO.DirectoryInfo]) { return "no project '$name' in the workspace" }
     # Direct-child gate: the repo's parent must BE the workspace, not merely
     # contain it somewhere up the tree. Catches `..` escapes that survive the
     # lexical check in Resolve-SbxSyncRequest. Both sides stay in the caller's
