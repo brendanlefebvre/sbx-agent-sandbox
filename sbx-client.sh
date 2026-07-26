@@ -10,14 +10,34 @@ key="${SBX_SYNC_KEY:-$HOME/.ssh/id_sbx_sync}"
 die() { echo "sbx: $*" >&2; exit 2; }
 case "${1:-}" in
   sync) shift ;;
+  pr) shift; cmd="pr" ;;
   ""|-h|--help|help)
     echo "usage: sbx sync [<project>] <push|pull|fetch>" >&2
-    echo "  Runs the git op HOST-side in the project workspace dir, with host" >&2
+    echo "       sbx pr <create|respond>" >&2
+    echo "  sync runs the git op HOST-side in the project workspace dir, with host" >&2
     echo "  credentials. Project defaults to the one containing your cwd." >&2
-    echo "  Every other sbx command is host-side only — run it on the host." >&2
+    echo "  pr wraps gh (c-gh) — see docs/GH.md. Every other sbx command is" >&2
+    echo "  host-side only — run it on the host." >&2
     exit 0 ;;
-  *) die "unknown command: $1 — inside the sandbox only 'sbx sync' exists; run other sbx commands on the host" ;;
+  *) die "unknown command: $1 — inside the sandbox only 'sbx sync'/'sbx pr' exist; run other sbx commands on the host" ;;
 esac
+
+if [ "${cmd:-}" = "pr" ]; then
+  case "${1:-}" in
+    create)
+      shift
+      exec gh pr create --fill "$@"
+      ;;
+    respond)
+      shift
+      git push || die "push failed"
+      pr_number=$(gh pr view --json number -q .number) || die "no PR found for this branch — run 'sbx pr create' first"
+      exec gh api "repos/{owner}/{repo}/pulls/$pr_number/comments" \
+        --jq '.[] | select(.user.login == "coderabbitai[bot]") | "#\(.id) \(.path):\(.line // .original_line)\n\(.body)\n---"'
+      ;;
+    *) die "usage: sbx pr <create|respond>" ;;
+  esac
+fi
 case $# in
   1) name=""; op="$1" ;;
   2) name="$1"; op="$2" ;;
