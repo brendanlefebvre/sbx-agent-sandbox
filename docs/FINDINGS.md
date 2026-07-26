@@ -775,3 +775,12 @@ describing *this host's* provisioning state rather than a fixed input — a thir
 mount appeared and a Windows path reached the POSIX converter. They now pass
 `-SyncDir $null`. Worth remembering when adding tests around any builder whose
 defaults read `$HOME`: they pass until the feature they ignore gets turned on.
+
+## 2026-07-26 — c-gh: GitHub CLI provisioning
+
+- **GitHub's apt repo carries arm64 packages** — `gh` installed on the first
+  try on this project's ARM64 Windows host, no arch-mapping needed the way
+  `pwsh`'s install requires (Sandboxfile).
+- **`gh auth setup-git` and the c-heavy sync SSH key are two independent push
+  paths to the same repos.** Provisioning both doesn't narrow either one's
+  reach — noted in `docs/GH.md` so it isn't "discovered" later as a surprise.
