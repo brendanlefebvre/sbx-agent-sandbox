@@ -86,3 +86,35 @@ Describe 'Build-SbxMainCreateArgs gh mount' {
         ($a -join ' ') | Should -BeLike '*gh-ro*'
     }
 }
+
+Describe 'Invoke-SbxGhSetup' {
+    BeforeEach {
+        $script:ghDir = Join-Path $TestDrive "gh-$([guid]::NewGuid())"
+        $script:tokenFile = Join-Path $TestDrive "token-$([guid]::NewGuid()).txt"
+        [IO.File]::WriteAllText($script:tokenFile, "ghp_fakeTokenValue`n")
+        Mock -CommandName Write-Host -MockWith { }   # the summary banner is not under test
+    }
+    It 'refuses to run without a token file' {
+        { Invoke-SbxGhSetup -GhDir $script:ghDir } | Should -Throw '*--token-file*'
+    }
+    It 'writes the token and reports it' {
+        $r = Invoke-SbxGhSetup -TokenFile $script:tokenFile -GhDir $script:ghDir
+        $r.Token | Should -Be (Join-Path $script:ghDir 'token')
+        Test-Path $r.Token | Should -BeTrue
+    }
+    It 'is idempotent — a second run overwrites rather than erroring' {
+        Invoke-SbxGhSetup -TokenFile $script:tokenFile -GhDir $script:ghDir | Out-Null
+        [IO.File]::WriteAllText($script:tokenFile, 'ghp_rotatedToken')
+        $r = Invoke-SbxGhSetup -TokenFile $script:tokenFile -GhDir $script:ghDir
+        (Get-Content -Raw $r.Token) | Should -Be 'ghp_rotatedToken'
+    }
+    It '--remove deletes the local token dir' {
+        Invoke-SbxGhSetup -TokenFile $script:tokenFile -GhDir $script:ghDir | Out-Null
+        Invoke-SbxGhSetup -Remove -GhDir $script:ghDir
+        Test-Path $script:ghDir | Should -BeFalse
+        Get-SbxProvisionedGhDir -GhDir $script:ghDir | Should -BeNullOrEmpty
+    }
+    It '--remove on an already-empty dir is a no-op, not an error' {
+        { Invoke-SbxGhSetup -Remove -GhDir (Join-Path $TestDrive 'never-existed') } | Should -Not -Throw
+    }
+}
