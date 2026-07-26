@@ -5,6 +5,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       libicu72 \
     && rm -rf /var/lib/apt/lists/*
 
+# GitHub CLI (c-gh; see docs/GH.md) — Debian's own repo doesn't carry `gh`, so
+# add GitHub's official apt repo. Ships arm64 packages, so this needs no
+# arch-mapping the way the pwsh install below does.
+RUN mkdir -p -m 755 /etc/apt/keyrings \
+    && curl -fsSL -o /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+       https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+    && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+    && mkdir -p -m 755 /etc/apt/sources.list.d \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+       > /etc/apt/sources.list.d/github-cli.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends gh \
+    && rm -rf /var/lib/apt/lists/*
+
 # Node LTS via NodeSource (supports linux/arm64)
 RUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
@@ -84,10 +98,14 @@ RUN printf '\nHost *\n    StrictHostKeyChecking accept-new\n' >> /etc/ssh/ssh_co
       '  cp -r /home/agent/.ssh-ro/. "$HOME/.ssh/" 2>/dev/null || true' \
       '  chmod 600 "$HOME"/.ssh/id_* 2>/dev/null || true' \
       '  [ -f "$HOME/.ssh/known_hosts" ] || touch "$HOME/.ssh/known_hosts"' \
-      '  chmod 600 "$HOME/.ssh/known_hosts" 2>/dev/null || true' \
-      'fi' \
-      'exec "$@"' \
-      > /usr/local/bin/sbx-entrypoint \
+       '  chmod 600 "$HOME/.ssh/known_hosts" 2>/dev/null || true' \
+       'fi' \
+       'if [ -f /home/agent/.gh-ro/token ]; then' \
+       '  gh auth login --with-token < /home/agent/.gh-ro/token' \
+       '  gh auth setup-git' \
+       'fi' \
+       'exec "$@"' \
+       > /usr/local/bin/sbx-entrypoint \
  && chmod +x /usr/local/bin/sbx-entrypoint
 
 # In-container sbx client: `sbx sync <op>` (c-heavy, unchanged — see the sync
