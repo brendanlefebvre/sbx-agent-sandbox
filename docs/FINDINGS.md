@@ -727,8 +727,8 @@ recorded the WSL vEthernet gateway as `172.20.240.1`; today the same interface i
 demand it explicitly. Confirmed again this run: the wslc bridge gateway
 `172.17.0.1` (what `/proc/net/route` yields) is **refused**, `host.docker.internal`
 does not resolve, the LAN IP times out from the container. vEthernet and Tailscale
-both reached publickey auth; vEthernet used, per P7's preference for the host-only
-path.
+both reached publickey auth; vEthernet was used, per P7's preference for the
+host-only path.
 
 **Full matrix passed end to end** from inside `sbx-main`: `fetch` and `pull` ran
 host-side git and reported `OK`; `clone`, `push --force`, `../secret`, and `ghost`
