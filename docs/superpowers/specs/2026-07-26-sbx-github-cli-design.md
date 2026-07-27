@@ -61,9 +61,8 @@ boundary.
 - Fine-grained GitHub PAT, scoped on github.com to the specific repos you
   choose to allow.
 - Permissions: **Contents: Read & write**, **Pull requests: Read & write**.
-  Possibly also **Issues: Read & write** — PR conversation-level comments use
-  the Issues API under the hood in GitHub's REST model; validate empirically
-  during implementation rather than assuming either way.
+  (Issues was suspected to also be needed for PR-conversation comments —
+  live verification on 2026-07-27 showed it isn't; see "Open questions".)
 - Explicitly NOT granted: Actions, Administration, Secrets, Workflows.
   Denying Workflows has a useful side effect: GitHub rejects any push that
   touches `.github/workflows/*` from a token lacking it, so CI configs stay
@@ -148,7 +147,8 @@ boundary.
 
 - Exact `sbx gh-setup` token-input UX (paste/stdin/`--token-file`) — resolved:
   `--token-file`.
-- Whether `Issues: Read & write` is actually required — still open, validate
-  empirically during live verification.
+- Whether `Issues: Read & write` is actually required — resolved by live
+  verification (2026-07-27): not required. `Pull requests: Read & write`
+  alone covers `sbx pr check` and `gh pr comment`.
 - Naming/location of the in-container script once it covers both sync and PR
   verbs — resolved: renamed `sbx-sync-client.sh` → `sbx-client.sh`.

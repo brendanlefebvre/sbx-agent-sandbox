@@ -23,12 +23,11 @@ At https://github.com/settings/personal-access-tokens/new, create a
     Denying Workflows has a side benefit: GitHub rejects any push touching
     `.github/workflows/*` from a token that lacks it, so CI configs stay
     unreachable regardless of what the agent tries.
-  - `sbx pr check` itself only reads PR review comments (Pull requests
-    permission covers that). If the agent also uses raw `gh pr comment` to
-    reply — GitHub's PR-conversation-comment API sits under the Issues
-    permission in its REST model — add **Issues: Read and write** too if you
-    see a 403 from that call. Live verification checks this empirically; this
-    doc will be updated once it's confirmed one way or the other.
+  - `Issues` permission is **not** needed. `gh pr comment` was suspected to
+    need it (PR-conversation comments sit under the Issues endpoint in
+    GitHub's REST model), but live verification (2026-07-27) confirmed
+    `Pull requests: Read and write` alone covers both `sbx pr check` and
+    `gh pr comment`.
 
 Save the token to a local file (not into a chat, not into a repo).
 
@@ -89,11 +88,15 @@ list*, not by *action*. Concretely, this design does NOT stop the agent from:
 - Force-pushing or deleting a branch within a granted repo.
 - Merging its own PR, unless you've added the branch protection rule above.
 
-It DOES stop the agent from (enforced by GitHub, not by sbx):
+It DOES stop the agent from (enforced by GitHub, not by sbx; both confirmed
+live 2026-07-27):
 
 - Touching any repo not explicitly listed on the token.
 - Running Actions workflows, reading secrets, or changing repo administration.
-- Modifying `.github/workflows/*` at all (no Workflows permission).
+- Modifying `.github/workflows/*` at all (no Workflows permission) — a real
+  push touching a workflow file was rejected.
+- Merging its own PR, once the branch-protection rule from step 2 is in
+  place — a real merge attempt was blocked pending human review.
 
 Other residual risk, stated plainly:
 

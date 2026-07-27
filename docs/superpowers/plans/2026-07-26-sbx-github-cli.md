@@ -1007,14 +1007,14 @@ tasks on subagents, but empirical/interactive steps — probes, image builds,
 logins, live verification — stay inline in the main session with Brendan in
 the loop), run this task in the main session, not delegated.
 
-- [ ] **Step 1: Rebuild and start the sandbox**
+- [x] **Step 1: Rebuild and start the sandbox**
 
 ```powershell
 wslc build -t sbx:latest -f Sandboxfile .
 sbx rebuild
 ```
 
-- [ ] **Step 2: Provision a real token against a throwaway repo**
+- [x] **Step 2: Provision a real token against a throwaway repo**
 
 Create a fine-grained PAT scoped to a single disposable test repo (per
 `docs/GH.md` step 1), add the branch-protection rule (step 2), then:
@@ -1024,7 +1024,7 @@ sbx gh-setup --token-file <path-to-real-token>
 sbx rebuild
 ```
 
-- [ ] **Step 3: Confirm `gh` is authenticated inside the container**
+- [x] **Step 3: Confirm `gh` is authenticated inside the container**
 
 ```powershell
 sbx <test-repo-name>
@@ -1032,13 +1032,13 @@ sbx <test-repo-name>
 Inside the tmux session: `gh auth status` — expect it to report logged in as
 the token's identity, scoped to the test repo.
 
-- [ ] **Step 4: Confirm PR creation end-to-end**
+- [x] **Step 4: Confirm PR creation end-to-end**
 
 Make a small commit on a branch in the test repo, then run
 `gh pr create --fill` inside the container. Confirm a real PR appears on
 github.com.
 
-- [ ] **Step 5: Confirm `sbx pr check` end-to-end against a real CodeRabbit review**
+- [x] **Step 5: Confirm `sbx pr check` end-to-end against a real CodeRabbit review**
 
 With CodeRabbit installed on the test repo and enabled for the PR, `git push`
 the branch, wait for CodeRabbit's review to land (several minutes), then run
@@ -1052,25 +1052,37 @@ too (see the open question in `docs/GH.md` step 1); add it to the token's
 permissions on github.com and update `docs/GH.md` to state the requirement
 definitively either way.
 
-- [ ] **Step 6: Confirm the branch-protection rule actually blocks self-merge**
+**Result (2026-07-27):** `gh pr comment` worked with no Issues permission —
+`Pull requests: Read and write` alone was sufficient. `docs/GH.md` and the
+design spec updated to state this definitively.
+
+- [x] **Step 6: Confirm the branch-protection rule actually blocks self-merge**
 
 Attempt `gh pr merge` (or `gh api ... /merge`) inside the container against
 the protected branch. Confirm GitHub rejects it pending human review — this
 is the one control in the whole design that isn't enforced by the token
 scope, so it must be checked for real, not assumed from GitHub's docs.
 
-- [ ] **Step 7: Confirm the Workflows-permission push rejection**
+**Result (2026-07-27):** confirmed — a real merge attempt was blocked pending
+human review.
+
+- [x] **Step 7: Confirm the Workflows-permission push rejection**
 
 From inside the container, attempt to commit and push a change under
 `.github/workflows/` in the test repo. Confirm GitHub rejects the push with a
 permissions error, validating the "Workflows: No access" mitigation described
 in `docs/GH.md`.
 
-- [ ] **Step 8: Record results**
+**Result (2026-07-27):** confirmed — the push was rejected.
+
+- [x] **Step 8: Record results**
 
 If anything in steps 3-7 didn't behave as documented, update `docs/GH.md`
 and/or `docs/FINDINGS.md` to match reality before considering this plan done
 — this task is the empirical check on every claim the earlier tasks made.
+
+**Result:** `docs/GH.md`, `docs/FINDINGS.md`, and the design spec updated with
+the three results above (2026-07-27).
 
 - [ ] **Step 9: Revoke the test token**
 
