@@ -1,12 +1,13 @@
 BeforeAll { . "$PSScriptRoot/../sbx.ps1" }
 
-# -SyncDir $null in both: without it these read the REAL ~/.sbx/sync and describe
-# whatever this host happens to be, so they passed only until someone ran
-# `sbx sync-setup` — which then added a third mount and fed a Windows path to the
-# POSIX converter. The c-heavy mount has its own coverage in SyncSetup.Tests.ps1.
+# -SyncDir $null and -GhDir $null in both: without them these read the REAL
+# ~/.sbx/sync and ~/.sbx/gh and describe whatever this host happens to be,
+# so they passed only until someone ran `sbx sync-setup` / `sbx gh-setup`.
+# The c-heavy mount has its own coverage in SyncSetup.Tests.ps1; the c-gh
+# mount has its own coverage in GhSetup.Tests.ps1.
 Describe 'Build-SbxMainCreateArgs' {
     It 'creates a detached sbx-main with exactly the workspace and auth mounts' {
-        $a = Build-SbxMainCreateArgs -WorkspacePath 'C:\Users\user\sbx-ws' -SyncDir $null
+        $a = Build-SbxMainCreateArgs -WorkspacePath 'C:\Users\user\sbx-ws' -SyncDir $null -GhDir $null
         ($a -join ' ') | Should -BeLike 'run -d --name sbx-main*'
         ($a -join ' ') | Should -BeLike '*--label sbx=1*'
         ($a -join ' ') | Should -BeLike '*-v sbx-claude-auth:/home/agent/.claude*'
@@ -18,7 +19,7 @@ Describe 'Build-SbxMainCreateArgs' {
         ($a -join ' ') | Should -Not -BeLike '*.ssh*'                     # never keys
     }
     It 'passes a POSIX workspace path through verbatim with -Posix' {
-        $a = Build-SbxMainCreateArgs -WorkspacePath '/Users/user/sbx-ws' -SyncDir $null -Posix
+        $a = Build-SbxMainCreateArgs -WorkspacePath '/Users/user/sbx-ws' -SyncDir $null -GhDir $null -Posix
         ($a -join ' ') | Should -BeLike '*-v /Users/user/sbx-ws:/work*'
     }
 }

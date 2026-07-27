@@ -149,11 +149,11 @@ Describe 'sync.conf round-trip' {
 
 Describe 'Build-SbxMainCreateArgs sync mount' {
     It 'omits the key mount when c-heavy is not provisioned' {
-        $a = Build-SbxMainCreateArgs -WorkspacePath '/Users/me/sbx-ws' -SyncDir $null -Posix
+        $a = Build-SbxMainCreateArgs -WorkspacePath '/Users/me/sbx-ws' -SyncDir $null -GhDir $null -Posix
         ($a -join ' ') | Should -Not -BeLike '*ssh-ro*'
     }
     It 'mounts the sync dir read-only at the entrypoint staging path when provisioned' {
-        $a = Build-SbxMainCreateArgs -WorkspacePath '/Users/me/sbx-ws' -SyncDir '/Users/me/.sbx/sync' -Posix
+        $a = Build-SbxMainCreateArgs -WorkspacePath '/Users/me/sbx-ws' -SyncDir '/Users/me/.sbx/sync' -GhDir $null -Posix
         ($a -join ' ') | Should -BeLike '*-v /Users/me/.sbx/sync:/home/agent/.ssh-ro:ro*'
         # The workspace mount and the image/command must still come last.
         $a[-3..-1] | Should -Be @('sbx:latest', 'sleep', 'infinity')
