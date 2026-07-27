@@ -13,29 +13,29 @@ case "${1:-}" in
   pr) shift; cmd="pr" ;;
   ""|-h|--help|help)
     echo "usage: sbx sync [<project>] <push|pull|fetch>" >&2
-    echo "       sbx pr <create|respond>" >&2
+    echo "       sbx pr check" >&2
     echo "  sync runs the git op HOST-side in the project workspace dir, with host" >&2
     echo "  credentials. Project defaults to the one containing your cwd." >&2
-    echo "  pr wraps gh (c-gh) — see docs/GH.md. Every other sbx command is" >&2
-    echo "  host-side only — run it on the host." >&2
+    echo "  pr check lists CodeRabbit's review comments on the current branch's" >&2
+    echo "  PR (c-gh) — see docs/GH.md. Everything else PR-related (create," >&2
+    echo "  push, reply) is plain 'gh'/'git', already authenticated — no wrapper" >&2
+    echo "  needed. Every other sbx command is host-side only — run it on the host." >&2
     exit 0 ;;
   *) die "unknown command: $1 — inside the sandbox only 'sbx sync'/'sbx pr' exist; run other sbx commands on the host" ;;
 esac
 
 if [ "${cmd:-}" = "pr" ]; then
   case "${1:-}" in
-    create)
-      shift
-      exec gh pr create --fill "$@"
-      ;;
-    respond)
-      shift
-      git push || die "push failed"
-      pr_number=$(gh pr view --json number -q .number) || die "no PR found for this branch — run 'sbx pr create' first"
+    check)
+      # Read-only, no push: CodeRabbit takes several minutes to review a new
+      # push, so a verb that pushed AND checked in one call would only ever
+      # see nothing or CodeRabbit's bare "review started" ack. Push separately
+      # with plain `git push`, wait, then check.
+      pr_number=$(gh pr view --json number -q .number) || die "no PR found for this branch — run 'gh pr create --fill' first"
       exec gh api "repos/{owner}/{repo}/pulls/$pr_number/comments" \
         --jq '.[] | select(.user.login == "coderabbitai[bot]") | "#\(.id) \(.path):\(.line // .original_line)\n\(.body)\n---"'
       ;;
-    *) die "usage: sbx pr <create|respond>" ;;
+    *) die "usage: sbx pr check" ;;
   esac
 fi
 case $# in
