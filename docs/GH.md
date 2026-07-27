@@ -23,12 +23,12 @@ At https://github.com/settings/personal-access-tokens/new, create a
     Denying Workflows has a side benefit: GitHub rejects any push touching
     `.github/workflows/*` from a token that lacks it, so CI configs stay
     unreachable regardless of what the agent tries.
-  - `sbx pr respond` itself only reads PR review comments (Pull requests
+  - `sbx pr check` itself only reads PR review comments (Pull requests
     permission covers that). If the agent also uses raw `gh pr comment` to
     reply — GitHub's PR-conversation-comment API sits under the Issues
     permission in its REST model — add **Issues: Read and write** too if you
-    see a 403 from that call. Task 8 checks this empirically; this doc will be
-    updated once it's confirmed one way or the other.
+    see a 403 from that call. Live verification checks this empirically; this
+    doc will be updated once it's confirmed one way or the other.
 
 Save the token to a local file (not into a chat, not into a repo).
 
@@ -53,22 +53,32 @@ longer needed.
 
 ## Use it
 
-From inside a project directory in the sandbox:
+`gh` is authenticated and on `PATH` inside the container the moment a token is
+provisioned, so PR creation, pushing, and replying are all just `gh`/`git`
+directly — no wrapper needed for any of them:
 
 ```text
-agent@sbx-main:/work/myrepo$ sbx pr create
-agent@sbx-main:/work/myrepo$ sbx pr respond
+agent@sbx-main:/work/myrepo$ gh pr create --fill
+agent@sbx-main:/work/myrepo$ git push
 ```
 
-- `sbx pr create` opens a PR from the current branch (`gh pr create --fill`).
-- `sbx pr respond` pushes any local commits, then lists CodeRabbit's review
-  comments on the PR for the current branch. It shows every comment
-  CodeRabbit has left, not just new ones since the last round — GitHub's REST
-  review-comments endpoint doesn't expose resolved-thread state (that's
-  GraphQL-only), so there's no "already addressed" filtering yet. The agent
-  reads the list, pushes fixes (re-running `sbx pr respond` shows the updated
-  set once CodeRabbit re-reviews the new commit), or replies directly with raw
-  `gh pr comment` / `gh api` — both already authenticated, no wrapper needed.
+The one thing worth a wrapper is `sbx pr check` — a non-obvious `gh api`
+incantation to filter down to CodeRabbit's review comments specifically:
+
+```text
+agent@sbx-main:/work/myrepo$ sbx pr check
+```
+
+It's deliberately **read-only** — it does not push. CodeRabbit takes several
+minutes to review a new push, so a verb that pushed and checked in one call
+would only ever see nothing or CodeRabbit's bare "review started"
+acknowledgement, never the actual feedback. The flow is: `git push`, wait,
+`sbx pr check`. It shows every comment CodeRabbit has left, not just new ones
+since the last check — GitHub's REST review-comments endpoint doesn't expose
+resolved-thread state (that's GraphQL-only), so there's no "already addressed"
+filtering yet. The agent reads the list, pushes a fix and checks again once
+CodeRabbit's re-reviewed, or replies directly with `gh pr comment` / `gh api`
+— both already authenticated, no wrapper needed.
 
 ## Security model, and its limits
 
