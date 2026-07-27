@@ -1084,7 +1084,9 @@ and/or `docs/FINDINGS.md` to match reality before considering this plan done
 **Result:** `docs/GH.md`, `docs/FINDINGS.md`, and the design spec updated with
 the three results above (2026-07-27).
 
-- [ ] **Step 9: Revoke the test token**
+- [x] **Step 9: Revoke the test token**
 
 Once verification is complete, revoke the throwaway PAT at
 https://github.com/settings/tokens and run `sbx gh-setup --remove` locally.
+
+**Result (2026-07-27):** confirmed revoked.
