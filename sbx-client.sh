@@ -32,7 +32,9 @@ if [ "${cmd:-}" = "pr" ]; then
       # see nothing or CodeRabbit's bare "review started" ack. Push separately
       # with plain `git push`, wait, then check.
       pr_number=$(gh pr view --json number -q .number) || die "no PR found for this branch — run 'gh pr create --fill' first"
-      exec gh api "repos/{owner}/{repo}/pulls/$pr_number/comments" \
+      # --paginate: the comments endpoint defaults to 30/page, and a PR with
+      # more CodeRabbit comments than that would silently truncate without it.
+      exec gh api --paginate "repos/{owner}/{repo}/pulls/$pr_number/comments" \
         --jq '.[] | select(.user.login == "coderabbitai[bot]") | "#\(.id) \(.path):\(.line // .original_line)\n\(.body)\n---"'
       ;;
     *) die "usage: sbx pr check" ;;

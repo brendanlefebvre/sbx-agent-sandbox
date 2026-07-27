@@ -1399,8 +1399,14 @@ function Write-SbxGhToken {
     $path = Get-SbxGhTokenPath -GhDir $GhDir
     # No BOM, no trailing newline: `gh auth login --with-token` reads stdin
     # verbatim and a stray CR/newline risks being read as part of the token.
-    [IO.File]::WriteAllText($path, $token, [Text.UTF8Encoding]::new($false))
-    if (-not $IsWindows) { & chmod 600 $path }
+    # Write-chmod-then-publish, same order as Update-SbxAuthorizedKeys: writing
+    # $path directly and chmod-ing after leaves a TOCTOU window where the token
+    # sits at the umask's default (typically 644) and readable to other local
+    # accounts.
+    $tmp = "$path.sbx.tmp"
+    [IO.File]::WriteAllText($tmp, $token, [Text.UTF8Encoding]::new($false))
+    if (-not $IsWindows) { & chmod 600 $tmp }
+    Move-Item -LiteralPath $tmp -Destination $path -Force
     return $path
 }
 
@@ -1430,7 +1436,7 @@ sbx: gh-setup needs a fine-grained GitHub PAT: sbx gh-setup --token-file <path>
     Write-Host "sbx: c-gh provisioned." -ForegroundColor Green
     Write-Host "  token       $path (mounted read-only into sbx-main)"
     Write-Host "  agents get  gh + git push authenticated as this token, on whatever repos/permissions you scoped it to on github.com." -ForegroundColor DarkGray
-    Write-Host "sbx: run 'sbx rebuild' so sbx-main picks up the token, then 'sbx pr create' / 'sbx pr respond' from inside a project." -ForegroundColor Cyan
+    Write-Host "sbx: run 'sbx rebuild' so sbx-main picks up the token, then 'gh pr create --fill' / 'git push' / 'sbx pr check' from inside a project." -ForegroundColor Cyan
     return [pscustomobject]@{ Token = $path }
 }
 

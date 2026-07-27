@@ -52,9 +52,12 @@ longer needed.
 
 ## Use it
 
-`gh` is authenticated and on `PATH` inside the container the moment a token is
-provisioned, so PR creation, pushing, and replying are all just `gh`/`git`
-directly — no wrapper needed for any of them:
+`sbx gh-setup` only writes the host-side token — the container authenticates
+against it at startup, so a token provisioned against an already-running
+`sbx-main` needs `sbx rebuild` before it takes effect. Once that's done, `gh`
+is authenticated and on `PATH` inside the container, so PR creation, pushing,
+and replying are all just `gh`/`git` directly — no wrapper needed for any of
+them:
 
 ```text
 agent@sbx-main:/work/myrepo$ gh pr create --fill
@@ -92,7 +95,12 @@ It DOES stop the agent from (enforced by GitHub, not by sbx; both confirmed
 live 2026-07-27):
 
 - Touching any repo not explicitly listed on the token.
-- Running Actions workflows, reading secrets, or changing repo administration.
+- Manually dispatching, managing, or rerunning Actions workflows via the API,
+  or reading secrets, or changing repo administration — no Actions permission
+  on the token. This does **not** stop the repo's own `push`/`pull_request`-
+  triggered workflows from running automatically as a result of what the
+  agent pushes; those run under the repository's own configuration and
+  secrets, independent of the PAT's permissions.
 - Modifying `.github/workflows/*` at all (no Workflows permission) — a real
   push touching a workflow file was rejected.
 - Merging its own PR, once the branch-protection rule from step 2 is in
