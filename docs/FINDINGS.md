@@ -784,3 +784,21 @@ defaults read `$HOME`: they pass until the feature they ignore gets turned on.
 - **`gh auth setup-git` and the c-heavy sync SSH key are two independent push
   paths to the same repos.** Provisioning both doesn't narrow either one's
   reach — noted in `docs/GH.md` so it isn't "discovered" later as a surprise.
+
+## 2026-07-27 — c-gh: live verification against a real fine-grained PAT
+
+Confirmed against a real throwaway repo, real token, real CodeRabbit review:
+
+- **`Issues: Read and write` is NOT required.** `Pull requests: Read and
+  write` alone was enough for both `sbx pr check` (reads review comments) and
+  `gh pr comment` (posts a reply) — the suspected REST-model Issues
+  dependency didn't materialize. `docs/GH.md`'s permission list no longer
+  hedges on this.
+- **The Workflows-permission mitigation holds.** A real push touching
+  `.github/workflows/*` from a token without Workflows access was rejected by
+  GitHub, not just per its documented behavior.
+- **Branch protection actually blocks agent self-merge.** With the required-
+  review rule in place, a real `gh pr merge` attempt from inside the
+  container was blocked pending human approval — this is the one control in
+  the whole c-gh design that isn't enforced by the token's own scope, and it
+  held up under a real attempt, not just the docs' assumption.
