@@ -106,7 +106,7 @@ Describe 'sbx-sync-client.sh' -Skip:(-not (Get-Command sh -ErrorAction SilentlyC
     }
 }
 
-Describe 'sbx pr' -Skip:(-not (Get-Command sh -ErrorAction SilentlyContinue)) {
+Describe 'sbx pr check' -Skip:(-not (Get-Command sh -ErrorAction SilentlyContinue)) {
     BeforeEach {
         $script:tmp = Join-Path $TestDrive "pr-$([guid]::NewGuid())"
         New-Item -ItemType Directory -Force $script:tmp | Out-Null
@@ -114,8 +114,11 @@ Describe 'sbx pr' -Skip:(-not (Get-Command sh -ErrorAction SilentlyContinue)) {
         $script:key  = Join-Path $script:tmp 'id_sbx_sync'
         [IO.File]::WriteAllText($script:conf, "host=10.0.0.1`nuser=me`nport=22`n")
         [IO.File]::WriteAllText($script:key, "KEY")
-        # Fake `gh` and `git` that record their argv and print canned output,
-        # standing in for the sync tests' fake `ssh`.
+        # Fake `gh` that records its argv and prints canned output, standing in
+        # for the sync tests' fake `ssh`. No fake `git` — `pr check` is
+        # deliberately read-only and never shells out to it (see the "why no
+        # push here" comment in sbx-client.sh); a stray git invocation would
+        # hit the real git and fail the test loudly, which is the point.
         $script:fake = Join-Path $script:tmp 'bin'
         New-Item -ItemType Directory -Force $script:fake | Out-Null
         $script:argvLog = Join-Path $script:tmp 'argv.txt'
@@ -127,32 +130,22 @@ Describe 'sbx pr' -Skip:(-not (Get-Command sh -ErrorAction SilentlyContinue)) {
             "case `"`$1 `$2`" in`n" +
             "  'pr view') echo 42 ;;`n" +
             "  'api repos/{owner}/{repo}/pulls/42/comments') echo 'FAKE-COMMENT-1' ;;`n" +
-            "  'pr create') echo 'https://github.com/x/y/pull/42' ;;`n" +
             "esac`nexit 0`n")
-        [IO.File]::WriteAllText((Join-Path $script:fake 'git'),
-            "#!/bin/sh`necho `"git `$*`" >> '$($script:argvLog -replace '\\','/')'`nexit 0`n")
     }
 
-    It 'pr create execs gh pr create --fill, passing through extra args' {
-        $r = Invoke-Client -ClientArgs @('pr', 'create', '--draft') -Conf $script:conf `
-                           -Key $script:key -FakeSshDir $script:fake
-        $r.Exit | Should -Be 0
-        (Get-Content -Raw $script:argvLog) | Should -BeLike '*gh pr create --fill --draft*'
-    }
-
-    It 'pr respond pushes the current branch, then lists coderabbit comments' {
-        $r = Invoke-Client -ClientArgs @('pr', 'respond') -Conf $script:conf `
+    It 'lists coderabbit comments without pushing' {
+        $r = Invoke-Client -ClientArgs @('pr', 'check') -Conf $script:conf `
                            -Key $script:key -FakeSshDir $script:fake
         $r.Exit | Should -Be 0
         $log = Get-Content -Raw $script:argvLog
-        $log | Should -BeLike '*git push*'
         $log | Should -BeLike '*gh pr view --json number*'
         $log | Should -BeLike '*gh api repos/{owner}/{repo}/pulls/42/comments*'
+        $log | Should -Not -BeLike '*git push*'
     }
 
     It 'rejects an unknown pr subcommand' {
         $r = Invoke-Client -ClientArgs @('pr', 'bogus') -Conf $script:conf -Key $script:key
         $r.Exit | Should -Be 2
-        $r.Out  | Should -BeLike '*usage: sbx pr*'
+        $r.Out  | Should -BeLike '*usage: sbx pr check*'
     }
 }
