@@ -105,8 +105,10 @@ boundary.
 
 3. **In-container `sbx pr check`** (extends the existing in-container client,
    renamed `sbx-client.sh`)
-   - Read-only, no side effects: lists CodeRabbit's outstanding review
-     comments on the PR for the current branch. Does NOT push — see
+   - Read-only, no side effects: lists every CodeRabbit review comment the
+     REST endpoint returns for the PR on the current branch — no filtering of
+     resolved or previously-seen threads (GitHub's REST review-comments
+     endpoint doesn't expose resolved-thread state). Does NOT push — see
      "Revision" above for why push and check must not be conflated.
    - PR creation (`gh pr create --fill`), pushing (`git push`), and replying
      (`gh pr comment` / `gh api`) are all just `gh`/`git` directly, already

@@ -125,11 +125,14 @@ Describe 'sbx pr check' -Skip:(-not (Get-Command sh -ErrorAction SilentlyContinu
         # Same idiom as the fake `ssh` above: a plain double-quoted string with
         # backtick-escaped `$` and `` `n `` newlines — NOT a here-string, which
         # would let PowerShell try to interpolate the shell script's own `$1`/`$*`.
+        # Matches on "$*" with wildcards rather than positional $1/$2: --paginate
+        # shifts the resource-path argument's position, and matching the whole
+        # argv string is resilient to that instead of hardcoding where it lands.
         [IO.File]::WriteAllText((Join-Path $script:fake 'gh'),
             "#!/bin/sh`necho `"gh `$*`" >> '$($script:argvLog -replace '\\','/')'`n" +
-            "case `"`$1 `$2`" in`n" +
-            "  'pr view') echo 42 ;;`n" +
-            "  'api repos/{owner}/{repo}/pulls/42/comments') echo 'FAKE-COMMENT-1' ;;`n" +
+            "case `"`$*`" in`n" +
+            "  'pr view --json number -q .number') echo 42 ;;`n" +
+            "  *'pulls/42/comments'*) echo 'FAKE-COMMENT-1' ;;`n" +
             "esac`nexit 0`n")
     }
 
@@ -139,7 +142,7 @@ Describe 'sbx pr check' -Skip:(-not (Get-Command sh -ErrorAction SilentlyContinu
         $r.Exit | Should -Be 0
         $log = Get-Content -Raw $script:argvLog
         $log | Should -BeLike '*gh pr view --json number*'
-        $log | Should -BeLike '*gh api repos/{owner}/{repo}/pulls/42/comments*'
+        $log | Should -BeLike '*gh api --paginate repos/{owner}/{repo}/pulls/42/comments*'
         $log | Should -Not -BeLike '*git push*'
     }
 
