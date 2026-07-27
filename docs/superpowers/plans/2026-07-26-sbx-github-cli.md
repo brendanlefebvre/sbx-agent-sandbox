@@ -8,6 +8,8 @@
 
 **Tech Stack:** PowerShell 7 (`pwsh`) host-side, POSIX `/bin/sh` in-container client, Pester for tests, GitHub CLI (`gh`) installed via its official apt repo in the Sandboxfile.
 
+**Revision note (2026-07-27):** Tasks 1-7 below were executed as written, then corrected after review: `sbx pr create` was dropped (pure `gh pr create --fill` pass-through, no value over calling `gh` directly), and `sbx pr respond` was replaced with a read-only `sbx pr check` — the original conflated push-then-list-comments in one call, which is actively wrong given CodeRabbit's multi-minute review lag (a push-and-check call only ever sees nothing or CodeRabbit's bare "review started" ack). Push is now plain `git push`, called separately, before checking. Task 5's body below is left as originally written for the historical record of what was executed; the actual code, tests, and docs now reflect `sbx pr check` only. Task 8 (not yet executed at time of this note) has been updated in place to verify the corrected surface. See the "Revision" section in `docs/superpowers/specs/2026-07-26-sbx-github-cli-design.md` for the full rationale.
+
 ## Global Constraints
 
 - Windows host is ARM64, not x64 (per user's global CLAUDE.md) — the Sandboxfile already arch-maps for `pwsh`; the new `gh` apt install must work unmodified on `arm64` (GitHub's apt repo ships arm64 packages, confirm during Task 6's build).
@@ -1030,20 +1032,25 @@ sbx <test-repo-name>
 Inside the tmux session: `gh auth status` — expect it to report logged in as
 the token's identity, scoped to the test repo.
 
-- [ ] **Step 4: Confirm `sbx pr create` end-to-end**
+- [ ] **Step 4: Confirm PR creation end-to-end**
 
-Make a small commit on a branch in the test repo, then run `sbx pr create`
-inside the container. Confirm a real PR appears on github.com.
+Make a small commit on a branch in the test repo, then run
+`gh pr create --fill` inside the container. Confirm a real PR appears on
+github.com.
 
-- [ ] **Step 5: Confirm `sbx pr respond` end-to-end against a real CodeRabbit review**
+- [ ] **Step 5: Confirm `sbx pr check` end-to-end against a real CodeRabbit review**
 
-With CodeRabbit installed on the test repo and enabled for the PR, wait for
-its review, then run `sbx pr respond` inside the container. Confirm it prints
-CodeRabbit's actual review comments (not just the fake fixture from Task 5's
-unit tests). Also try `gh pr comment <text>` by hand inside the container — if
-it 403s, the token needs **Issues: Read and write** too (see the open question
-in `docs/GH.md` step 1); add it to the token's permissions on github.com and
-update `docs/GH.md` to state the requirement definitively either way.
+With CodeRabbit installed on the test repo and enabled for the PR, `git push`
+the branch, wait for CodeRabbit's review to land (several minutes), then run
+`sbx pr check` inside the container. Confirm it prints CodeRabbit's actual
+review comments (not just the fake fixture from Task 5's unit tests), and
+confirm running it again immediately after a fresh push (before CodeRabbit
+has re-reviewed) shows stale/no new comments rather than erroring — that's
+the reason it doesn't push for you. Also try `gh pr comment <text>` by hand
+inside the container — if it 403s, the token needs **Issues: Read and write**
+too (see the open question in `docs/GH.md` step 1); add it to the token's
+permissions on github.com and update `docs/GH.md` to state the requirement
+definitively either way.
 
 - [ ] **Step 6: Confirm the branch-protection rule actually blocks self-merge**
 

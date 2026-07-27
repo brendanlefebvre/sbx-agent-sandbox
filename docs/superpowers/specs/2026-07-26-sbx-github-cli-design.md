@@ -1,7 +1,36 @@
 # sbx GitHub CLI support — PR creation + CodeRabbit response cycle
 
 **Date:** 2026-07-26
-**Status:** Design approved by Brendan; awaiting implementation plan.
+**Status:** Implemented on `feat/gh-cli-support`; revised same-day after the
+implementing agent finished and Brendan reviewed the result (see "Revision"
+below).
+
+## Revision (post-implementation review, same day)
+
+Two corrections made after Tasks 1-7 of the implementation plan had already
+been executed and committed:
+
+1. **Dropped `sbx pr create`.** It was `exec gh pr create --fill "$@"` — a
+   pure pass-through with no logic of its own. `gh` is on `PATH` inside the
+   container regardless; a wrapper adds nothing. The agent runs
+   `gh pr create --fill` directly.
+2. **Split push out of the comment-listing verb, and renamed it.** The
+   original `sbx pr respond` pushed local commits *and* listed CodeRabbit's
+   comments in one call — named "respond" even though it never posted
+   anything back (an actual reply is still a manual `gh pr comment`). Worse,
+   conflating push-and-check is actively wrong: CodeRabbit takes several
+   minutes to review a new push, so a call that pushes and immediately checks
+   will only ever see nothing or CodeRabbit's bare "review started"
+   acknowledgement, never the real feedback. Push doesn't need a wrapper
+   either — plain `git push` already works once `gh auth setup-git` has run.
+   What's left, and what's actually worth wrapping, is the non-obvious
+   `gh api .../comments --jq` incantation to filter down to CodeRabbit's
+   comments specifically. That's now its own read-only, no-side-effects verb:
+   **`sbx pr check`**.
+
+The rest of this document is otherwise unchanged — "Scope of authority
+granted" is unaffected (Contents/Pull-requests permissions still cover it;
+`sbx pr check` only reads).
 
 ## Goal
 
@@ -75,20 +104,17 @@ boundary.
    - Only mounted/activated when `sbx gh-setup` has been run — mirrors sync's
      "absent unless provisioned" default.
 
-3. **In-container `sbx pr` verb** (extends the existing in-container client,
-   `sbx-sync-client.sh` or a sibling script)
-   - `sbx pr create` — thin wrapper over `gh pr create --fill` from the
-     current branch/cwd's repo.
-   - `sbx pr respond` — pushes any local commits on the current branch, then
-     lists CodeRabbit's outstanding review comments on the PR for the
-     current branch. No state machine, no auto-reply: the agent reads the
-     list, either pushes a fix (re-run `sbx pr respond` next round — the
-     push is visible to CodeRabbit, which re-reviews on its own) or replies
-     directly with raw `gh pr comment` / `gh api` (already authenticated, no
-     wrapper needed for that case).
+3. **In-container `sbx pr check`** (extends the existing in-container client,
+   renamed `sbx-client.sh`)
+   - Read-only, no side effects: lists CodeRabbit's outstanding review
+     comments on the PR for the current branch. Does NOT push — see
+     "Revision" above for why push and check must not be conflated.
+   - PR creation (`gh pr create --fill`), pushing (`git push`), and replying
+     (`gh pr comment` / `gh api`) are all just `gh`/`git` directly, already
+     authenticated — no wrapper needed for any of them.
    - Unlike `sbx sync`, this wrapper is genuinely just UX sugar — there is no
-     validator behind it in either case, so the docs should say so plainly
-     rather than imply a boundary that isn't there.
+     validator behind it, so the docs should say so plainly rather than imply
+     a boundary that isn't there.
 
 ## Residual risk (state plainly, `docs/SYNC.md`-style)
 
@@ -113,14 +139,16 @@ boundary.
 - Live verification (inline, per this project's subagent-driven-plan
   convention — empirical/interactive steps stay in the main session with
   Brendan in the loop): provision a real fine-grained PAT against a throwaway
-  repo, confirm `gh pr create` and `sbx pr respond` work end-to-end against a
-  real CodeRabbit review, and confirm the Workflows-permission push rejection
-  with a real attempt (don't just assume GitHub's documented behavior holds).
+  repo, confirm `gh pr create --fill` and `sbx pr check` work end-to-end
+  against a real CodeRabbit review, and confirm the Workflows-permission push
+  rejection with a real attempt (don't just assume GitHub's documented
+  behavior holds).
 
 ## Open questions for the implementation plan
 
-- Exact `sbx gh-setup` token-input UX (paste/stdin/`--token-file`).
-- Whether `Issues: Read & write` is actually required (validate empirically).
+- Exact `sbx gh-setup` token-input UX (paste/stdin/`--token-file`) — resolved:
+  `--token-file`.
+- Whether `Issues: Read & write` is actually required — still open, validate
+  empirically during live verification.
 - Naming/location of the in-container script once it covers both sync and PR
-  verbs — keep `sbx-sync-client.sh`'s name, or rename to something that
-  doesn't imply sync-only.
+  verbs — resolved: renamed `sbx-sync-client.sh` → `sbx-client.sh`.
