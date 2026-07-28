@@ -802,3 +802,35 @@ Confirmed against a real throwaway repo, real token, real CodeRabbit review:
   container was blocked pending human approval — this is the one control in
   the whole c-gh design that isn't enforced by the token's own scope, and it
   held up under a real attempt, not just the docs' assumption.
+
+## Container git identity dies with the container; PowerShell's array-literal `+` bites
+
+Two findings from wiring the sandbox's git identity (`feat/container-git-identity`).
+
+**The identity problem.** `~/.gitconfig` sits at the home root, a *sibling* of the
+`~/.claude` volume mount — so it lives in the container layer and every
+`sbx rebuild` throws it away. Agents hit "Author identity unknown" on their first
+commit and hand-set it, until the next rebuild. Fixed the same way the project
+already fixed `~/.claude.json`: `ENV GIT_CONFIG_GLOBAL=/home/agent/.claude/.gitconfig`
+relocates the global config INTO the persisted auth volume. Seeding is host-side
+(`Set-SbxContainerGitIdentity`, called on the create path so `sbx rebuild` covers
+it), sourced from the host's own `git config` and overridable with
+`SBX_GIT_USER_NAME`/`SBX_GIT_USER_EMAIL`. It writes only when the container has no
+identity, so a hand-set one is never clobbered. Note `GIT_CONFIG_GLOBAL` needs git
+≥ 2.32; bookworm-slim ships 2.39.5.
+
+**The PowerShell quirk (this one is general).** A trailing `+` inside an array
+literal is NOT string concatenation — it parses as *unary plus on the next
+element*:
+
+```powershell
+@('bash','-c', 'first ' +
+                'second', '--')      # -> 4 elements: 'first ', 'second', ...
+```
+
+So an argv built that way silently ships the script and its continuation as two
+separate arguments; here that made the payload's second half land in `$0` and the
+identity never get written. It fails silently — the command still runs, just
+wrong. Build the string into a variable first, then put the variable in the array.
+Caught by a unit test asserting on `$a[4]`, which is the argument for asserting on
+argv *elements* rather than on `($a -join ' ')`: the joined form hides it.

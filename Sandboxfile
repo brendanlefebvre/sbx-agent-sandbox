@@ -129,6 +129,15 @@ RUN chmod +x /usr/local/bin/sbx
 # /home/agent/.claude/.claude.json, inside the volume, so config persists.
 ENV CLAUDE_CONFIG_DIR=/home/agent/.claude
 
+# Same problem, same fix, for git: the global config is normally ~/.gitconfig —
+# a sibling of the ~/.claude volume mount, so it lives in the container layer and
+# every `sbx rebuild` loses it, leaving agents with "Author identity unknown" on
+# their first commit. GIT_CONFIG_GLOBAL relocates it INTO the volume, so an
+# identity seeded once survives rebuilds (and image rebuilds). Repo-local config
+# still wins over it, so a repo that needs a different identity is unaffected.
+# Seeding is Set-SbxContainerGitIdentity's job, host-side at container create.
+ENV GIT_CONFIG_GLOBAL=/home/agent/.claude/.gitconfig
+
 # UTF-8 locale: debian-slim leaves LANG unset (POSIX), and tmux in a non-UTF-8
 # locale renders every non-ASCII glyph as "_" — claude's logo, spinners, and
 # status glyphs all degrade (found live in v2 verification; C.utf8 ships with

@@ -51,6 +51,54 @@ Describe 'Build-SbxScratchArgs' {
     }
 }
 
+Describe 'Build-SbxGitIdentityArgs' {
+    It 'seeds the global identity through exec, values as argv (no shell quoting)' {
+        $a = Build-SbxGitIdentityArgs -UserName 'Ada Lovelace' -Email 'ada@example.com'
+        $a[0..3] | Should -Be @('exec','sbx-main','bash','-c')
+        # Values ride as positional args after the `--` $0 placeholder, never
+        # interpolated into the script — a name with a quote or a newline in it
+        # cannot become a second config key.
+        $a[-3..-1] | Should -Be @('--','Ada Lovelace','ada@example.com')
+        $a[4] | Should -BeLike '*git config --global user.name "$1"*'
+        $a[4] | Should -BeLike '*git config --global user.email "$2"*'
+    }
+    It 'no-ops when the container already has an identity' {
+        $a = Build-SbxGitIdentityArgs -UserName 'x' -Email 'y@z'
+        # The guard runs first and short-circuits, so re-running create/rebuild
+        # never clobbers an identity set by hand inside the container.
+        $a[4] | Should -BeLike 'git config --global --get user.email >/dev/null 2>&1 && exit 0;*'
+    }
+    It 'targets a named container' {
+        (Build-SbxGitIdentityArgs -UserName 'a' -Email 'b@c' -Name 'sbx-other')[1] |
+            Should -Be 'sbx-other'
+    }
+}
+
+Describe 'Get-SbxHostGitIdentity' {
+    AfterEach { $env:SBX_GIT_USER_NAME = $null; $env:SBX_GIT_USER_EMAIL = $null }
+    It 'prefers SBX_GIT_USER_* over the host git config' {
+        $env:SBX_GIT_USER_NAME  = 'Env Name'
+        $env:SBX_GIT_USER_EMAIL = 'env@example.com'
+        $id = Get-SbxHostGitIdentity
+        $id.Name  | Should -Be 'Env Name'
+        $id.Email | Should -Be 'env@example.com'
+    }
+    It 'returns null when either half is missing — a half identity is not usable' {
+        $env:SBX_GIT_USER_NAME  = 'Only A Name'
+        $env:SBX_GIT_USER_EMAIL = ''
+        Mock -CommandName git -MockWith { }      # host config reads as empty
+        Get-SbxHostGitIdentity | Should -BeNullOrEmpty
+    }
+}
+
+Describe 'Set-SbxContainerGitIdentity' {
+    It 'warns and stays non-fatal when no identity is available' {
+        Mock -CommandName Write-Warning -MockWith { }
+        { Set-SbxContainerGitIdentity -Runtime 'wslc' -Identity $null } | Should -Not -Throw
+        Should -Invoke Write-Warning -Times 1
+    }
+}
+
 Describe 'Get-SbxMainState' {
     It 'absent when no sbx-main row' {
         Mock -CommandName Get-SbxList -MockWith { @() }

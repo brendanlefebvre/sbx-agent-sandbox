@@ -667,6 +667,61 @@ function Get-SbxMainState {
     return 'stopped'
 }
 
+function Get-SbxHostGitIdentity {
+    [CmdletBinding()]
+    param()
+    # The host's own git identity is the default source of truth — the sandbox
+    # commits as the human who owns the machine. SBX_GIT_USER_* overrides it for
+    # anyone who wants sandbox commits attributed differently.
+    $name  = if ($env:SBX_GIT_USER_NAME)  { $env:SBX_GIT_USER_NAME }
+             else { (& git config --get user.name  2>$null | Select-Object -First 1) }
+    $email = if ($env:SBX_GIT_USER_EMAIL) { $env:SBX_GIT_USER_EMAIL }
+             else { (& git config --get user.email 2>$null | Select-Object -First 1) }
+    if (-not $name -or -not $email) { return $null }
+    return [pscustomobject]@{ Name = "$name".Trim(); Email = "$email".Trim() }
+}
+
+function Build-SbxGitIdentityArgs {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$UserName,
+          [Parameter(Mandatory)][string]$Email,
+          [string]$Name = 'sbx-main')
+    # `git config` writes to GIT_CONFIG_GLOBAL, which the image points into the
+    # auth volume — so this seeds once and outlives every rebuild. Values ride as
+    # separate argv elements through exec (no shell), so a name with spaces or
+    # quotes needs no escaping and can't break out into a second config key.
+    # Built as one variable, NOT a '...' + '...' literal inside the @(): a trailing
+    # + inside an array literal is unary plus on the NEXT element, not string
+    # concatenation, so that spelling silently ships two argv elements and the
+    # identity never gets set (caught by tests/Main.Tests.ps1; docs/FINDINGS.md).
+    $script = 'git config --global --get user.email >/dev/null 2>&1 && exit 0; ' +
+              'git config --global user.name "$1" && git config --global user.email "$2"'
+    return @('exec',$Name,'bash','-c',$script,'--',$UserName,$Email)
+}
+
+function Set-SbxContainerGitIdentity {
+    [CmdletBinding()]
+    param([string]$Runtime = (Resolve-SbxRuntime),
+          [string]$Name = 'sbx-main',
+          [object]$Identity = (Get-SbxHostGitIdentity))
+    # Best-effort and non-fatal: a sandbox that comes up without an identity is
+    # still a working sandbox, just one that will ask for `git config` on first
+    # commit — the status quo. Never let it block the launch.
+    if (-not $Identity) {
+        Write-Warning "sbx: no git identity on this host (git config user.name/user.email) — container commits will need one; set SBX_GIT_USER_NAME/EMAIL to override"
+        return
+    }
+    $a = Build-SbxGitIdentityArgs -UserName $Identity.Name -Email $Identity.Email -Name $Name
+    # The container was created moments ago; give the anchor process a beat to be
+    # exec-able rather than failing the seed on a cold-start race.
+    foreach ($attempt in 1..3) {
+        $out = & $Runtime @a 2>&1
+        if ($LASTEXITCODE -eq 0) { return }
+        if ($attempt -lt 3) { Start-Sleep -Milliseconds 300 }
+    }
+    Write-Warning "sbx: could not seed the container git identity: $($out -join ' ')"
+}
+
 function Start-SbxMain {
     [CmdletBinding()]
     param([string]$Runtime = (Resolve-SbxRuntime),
@@ -680,6 +735,9 @@ function Start-SbxMain {
             }
             $createArgs = Build-SbxMainCreateArgs -WorkspacePath $WorkspaceDir -Posix:$IsMacOS
             $null = & $Runtime @createArgs
+            # Seed on create, which is also what `sbx rebuild` does — so the fix
+            # lands on exactly the path where the old identity used to vanish.
+            Set-SbxContainerGitIdentity -Runtime $Runtime
         }
     }
 }
