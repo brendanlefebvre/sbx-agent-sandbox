@@ -104,6 +104,20 @@ cross-project vantage point for orchestration. Two terminals attached to the sam
 session mirror each other — one terminal per session, many tmux windows within it, is the
 intended flow.
 
+### Git identity inside the sandbox
+
+Fresh containers used to greet the first `git commit` with *"Author identity unknown"*:
+`~/.gitconfig` is a sibling of the `~/.claude` volume mount, so it lived in the container
+layer and every `sbx rebuild` wiped it. The image now points `GIT_CONFIG_GLOBAL` into the
+auth volume, and container creation seeds it from **your host's** `git config user.name` /
+`user.email`, so sandbox commits are attributed to you and survive rebuilds.
+
+Override with `SBX_GIT_USER_NAME` / `SBX_GIT_USER_EMAIL` if sandbox commits should carry a
+different identity. Seeding only runs when the container has none, so an identity you set
+by hand inside the sandbox is never overwritten — and repo-local `git config` still wins
+over all of it. If the host itself has no identity configured, `sbx` warns once and
+carries on.
+
 ### Working the fleet
 
 The hub is more than an observability perch — it has three levers, today, with no

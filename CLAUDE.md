@@ -55,6 +55,13 @@ for the implementation plan.
   (`/work/<name>`) under Claude's own `~/.claude/projects` layout. Orphaned `sbx-proj-*`
   volumes from the v1 per-repo model are retired; reap them by hand
   (`wslc volume remove <name>`) and don't recreate the pattern.
+- **Git identity is seeded, not baked.** The image points `GIT_CONFIG_GLOBAL` into the
+  auth volume (same trick as `CLAUDE_CONFIG_DIR`, and for the same reason: `~/.gitconfig`
+  is a sibling of the volume mount, so it dies on every rebuild). `Set-SbxContainerGitIdentity`
+  fills it host-side on the create path — from the host's `git config`, or
+  `SBX_GIT_USER_NAME`/`SBX_GIT_USER_EMAIL` — and only when the container has none, so a
+  hand-set identity survives. Never hardcode an identity in the `Sandboxfile`: this is a
+  public image, and the identity is the human's, not the sandbox's.
 - **Sync has two rungs.** *c-lite* (default): the human runs `sbx sync <name> <op>`
   host-side, no keys in the container. *c-heavy* (opt-in, `sbx sync-setup`): a
   dedicated container key pinned `restrict,command="…sbx-sync-exec.ps1…"` lets agents
