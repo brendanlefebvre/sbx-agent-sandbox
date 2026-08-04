@@ -62,13 +62,16 @@ Describe 'Build-SbxGitIdentityArgs' {
         $a[4] | Should -BeLike '*git config --global user.name "$1"*'
         $a[4] | Should -BeLike '*git config --global user.email "$2"*'
     }
-    It 'no-ops only when the container already has BOTH identity fields' {
+    It 'no-ops only when the container already has BOTH identity fields, non-empty' {
         $a = Build-SbxGitIdentityArgs -UserName 'x' -Email 'y@z'
         # The guard runs first and short-circuits, so re-running create/rebuild
-        # never clobbers an identity set by hand inside the container. It must
-        # require BOTH fields - an email-only config is incomplete and has to be
-        # re-seeded, so the guard checks user.name AND user.email before exit 0.
-        $a[4] | Should -BeLike '*git config --global --get user.name*&&*git config --global --get user.email*&& exit 0;*'
+        # never clobbers an identity set by hand. It requires BOTH fields AND
+        # non-empty values: `git config --get` exits 0 for a present-but-blank
+        # key, so a bare --get check would wrongly skip reseeding. Assert the
+        # `[ -n "$(...)" ]` form guards user.name AND user.email before exit 0.
+        $a[4] | Should -Match '-n "\$\(git config --global --get user\.name'
+        $a[4] | Should -Match '-n "\$\(git config --global --get user\.email'
+        $a[4] | Should -Match '\]\s*&&\s*exit 0'
     }
     It 'targets a named container' {
         (Build-SbxGitIdentityArgs -UserName 'a' -Email 'b@c' -Name 'sbx-other')[1] |
@@ -139,14 +142,19 @@ Describe 'Start-SbxMain' -Skip:(-not $IsWindows) {
         Start-SbxMain -Runtime 'wslc' -WorkspaceDir (Join-Path $TestDrive 'ws')
         $script:calls | Should -Contain 'start sbx-main'
     }
-    It 'creates when absent, creating the workspace dir first' {
+    It 'creates when absent, creating the workspace dir first, and seeds the identity' {
         Mock -CommandName Get-SbxMainState -MockWith { 'absent' }
+        # Isolate: the seed has its own tests; here we only assert it is invoked.
+        Mock -CommandName Set-SbxContainerGitIdentity -MockWith { }
         $script:calls = @()
         Mock -CommandName wslc -MockWith { $script:calls += ,($args -join ' ') }
         $ws = Join-Path $TestDrive 'fresh-ws'
         Start-SbxMain -Runtime 'wslc' -WorkspaceDir $ws
         Test-Path $ws | Should -BeTrue
         ($script:calls -join '|') | Should -BeLike '*run -d --name sbx-main*sleep infinity*'
+        # The create path must seed the container identity - guards against a
+        # regression that drops the Set-SbxContainerGitIdentity call.
+        Should -Invoke Set-SbxContainerGitIdentity -Times 1 -Exactly -ParameterFilter { $Runtime -eq 'wslc' }
     }
 }
 

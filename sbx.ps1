@@ -681,8 +681,12 @@ function Get-SbxHostGitIdentity {
              else { Get-SbxHostGitConfig -Key 'user.name' }
     $email = if ($env:SBX_GIT_USER_EMAIL) { $env:SBX_GIT_USER_EMAIL }
              else { Get-SbxHostGitConfig -Key 'user.email' }
+    # Trim BEFORE the emptiness check: a whitespace-only value (env var set to
+    # spaces, or a host config key present but blank) is truthy and would slip
+    # past the check, then Trim() to '' and seed an empty user.name/email.
+    $name  = "$name".Trim(); $email = "$email".Trim()
     if (-not $name -or -not $email) { return $null }
-    return [pscustomobject]@{ Name = "$name".Trim(); Email = "$email".Trim() }
+    return [pscustomobject]@{ Name = $name; Email = $email }
 }
 
 function Build-SbxGitIdentityArgs {
@@ -698,8 +702,8 @@ function Build-SbxGitIdentityArgs {
     # + inside an array literal is unary plus on the NEXT element, not string
     # concatenation, so that spelling silently ships two argv elements and the
     # identity never gets set (caught by tests/Main.Tests.ps1; docs/FINDINGS.md).
-    $script = 'git config --global --get user.name  >/dev/null 2>&1 && ' +
-              'git config --global --get user.email >/dev/null 2>&1 && exit 0; ' +
+    $script = '[ -n "$(git config --global --get user.name  2>/dev/null)" ] && ' +
+              '[ -n "$(git config --global --get user.email 2>/dev/null)" ] && exit 0; ' +
               'git config --global user.name "$1" && git config --global user.email "$2"'
     return @('exec',$Name,'bash','-c',$script,'--',$UserName,$Email)
 }
