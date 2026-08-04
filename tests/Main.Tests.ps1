@@ -79,6 +79,26 @@ Describe 'Build-SbxGitIdentityArgs' {
     }
 }
 
+Describe 'Build-SbxGitIdentityVolumeArgs' {
+    It 'seeds the shared auth volume via a one-shot run --rm, same script as exec' {
+        $a = Build-SbxGitIdentityVolumeArgs -UserName 'Ada Lovelace' -Email 'ada@example.com'
+        $a[0..1] | Should -Be @('run','--rm')
+        ($a -join ' ') | Should -BeLike '*-v sbx-claude-auth:/home/agent/.claude*'
+        ($a -join ' ') | Should -BeLike '*sbx:latest bash -c*'
+        # Identical guard/seed script as the exec path (index differs: run args
+        # are longer), and values as positional argv after the `--` placeholder.
+        $exec = Build-SbxGitIdentityArgs -UserName 'x' -Email 'y@z'
+        $a[7] | Should -Be $exec[4]
+        $a[-3..-1] | Should -Be @('--','Ada Lovelace','ada@example.com')
+    }
+    It 'mounts ONLY the auth volume - never /work or a projects volume' {
+        $a = Build-SbxGitIdentityVolumeArgs -UserName 'x' -Email 'y@z'
+        (@($a) | Where-Object { $_ -eq '-v' }).Count | Should -Be 1
+        ($a -join ' ') | Should -Not -BeLike '*:/work*'
+        ($a -join ' ') | Should -Not -BeLike '*-proj:*'
+    }
+}
+
 Describe 'Get-SbxHostGitIdentity' {
     AfterEach { $env:SBX_GIT_USER_NAME = $null; $env:SBX_GIT_USER_EMAIL = $null }
     It 'prefers SBX_GIT_USER_* over the host git config' {
@@ -112,6 +132,14 @@ Describe 'Set-SbxContainerGitIdentity' {
     It 'warns and stays non-fatal when no identity is available' {
         Mock -CommandName Write-Warning -MockWith { }
         { Set-SbxContainerGitIdentity -Runtime 'wslc' -Identity $null } | Should -Not -Throw
+        Should -Invoke Write-Warning -Times 1
+    }
+}
+
+Describe 'Set-SbxVolumeGitIdentity' {
+    It 'warns and stays non-fatal when no identity is available' {
+        Mock -CommandName Write-Warning -MockWith { }
+        { Set-SbxVolumeGitIdentity -Runtime 'wslc' -Identity $null } | Should -Not -Throw
         Should -Invoke Write-Warning -Times 1
     }
 }
