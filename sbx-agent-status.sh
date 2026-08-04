@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# sbx-agent-status — one-glance view of every agent session.
+# sbx-agent-status - one-glance view of every agent session.
 #
 # Prints, per tmux window: idle time, whether a `claude` process is alive
 # anywhere beneath the pane, and the pane title (Claude sets this to its live
@@ -9,7 +9,7 @@
 #
 #   SBX_IDLE_WARN=10   minutes of no output before a claude session is flagged
 #
-# LIMITS — read before trusting this:
+# LIMITS - read before trusting this:
 #   This detects LIVENESS and IDLENESS, not "blocked waiting for input." From
 #   outside the process you cannot distinguish an agent waiting on a question
 #   from one quietly running a long build; both emit nothing. The authoritative
@@ -21,7 +21,7 @@ IDLE_WARN=${SBX_IDLE_WARN:-10}
 
 command -v tmux >/dev/null 2>&1 || { echo "sbx-agent-status: tmux not found" >&2; exit 1; }
 # Without ps the claude-liveness column silently reports everything as "shell"
-# (debian-slim ships no procps) — fail loudly instead of degrading quietly.
+# (debian-slim ships no procps) - fail loudly instead of degrading quietly.
 command -v ps >/dev/null 2>&1 || { echo "sbx-agent-status: ps not found (install procps in the image)" >&2; exit 1; }
 tmux has-session >/dev/null 2>&1 || { echo "no tmux sessions"; exit 0; }
 

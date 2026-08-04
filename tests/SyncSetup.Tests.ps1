@@ -1,7 +1,7 @@
 BeforeAll { . "$PSScriptRoot/../sbx.ps1" }
 
 # c-heavy provisioning (ROADMAP 1 / FINDINGS P7). These cover the parts that bit
-# us during the probes — authorized_keys line construction and, especially, the
+# us during the probes - authorized_keys line construction and, especially, the
 # file surgery around it, where a mistake either silently disables the key or
 # eats a real one.
 
@@ -15,7 +15,7 @@ Describe 'Build-SbxAuthorizedKeysLine' {
         $line | Should -Be ('restrict,command="/opt/homebrew/bin/pwsh -NoProfile -File /opt/sbx/sbx-sync-exec.ps1' +
                             ' -WorkspaceDir /Users/me/sbx-ws" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFakeKeyMaterial sbx-sync')
     }
-    It 'keeps restrict first — it is what kills -L/-D forwarding regardless of the command' {
+    It 'keeps restrict first - it is what kills -L/-D forwarding regardless of the command' {
         (Build-SbxAuthorizedKeysLine -PublicKey $script:pub -ExecPath '/x.ps1' -WorkspaceDir '/ws' -PwshCommand 'pwsh') |
             Should -BeLike 'restrict,command=*'
     }
@@ -24,7 +24,7 @@ Describe 'Build-SbxAuthorizedKeysLine' {
                                             -WorkspaceDir 'C:\Users\me\sbx-ws' -PwshCommand 'pwsh'
         $line | Should -BeLike '*-File C:/repo/sbx-sync-exec.ps1 -WorkspaceDir C:/Users/me/sbx-ws"*'
         # ONE backslash. PowerShell wildcards escape with a backtick, not a
-        # backslash, so '*\\*' asks for two CONSECUTIVE backslashes — a pattern
+        # backslash, so '*\\*' asks for two CONSECUTIVE backslashes - a pattern
         # this line could never match even with the normalization removed.
         $line | Should -Not -BeLike '*\*'
     }
@@ -39,7 +39,7 @@ Describe 'Build-SbxAuthorizedKeysLine' {
     }
     It 'refuses a path containing a double quote rather than emitting it raw' {
         # A `"` closes command=" early. What is left is still a SYNTACTICALLY VALID
-        # authorized_keys line — the key keeps working, with the forced command
+        # authorized_keys line - the key keeps working, with the forced command
         # truncated or gone, i.e. the container's key stops being restricted.
         # $env:SBX_WORKSPACE feeds WorkspaceDir, and `"` is legal in a macOS path.
         { Build-SbxAuthorizedKeysLine -PublicKey $script:pub -ExecPath '/x.ps1' `
@@ -160,7 +160,7 @@ Describe 'Build-SbxMainCreateArgs sync mount' {
     }
 }
 
-# Every It below reaches real ssh-keygen — provisioning generates the keypair.
+# Every It below reaches real ssh-keygen - provisioning generates the keypair.
 # Absent (a stripped container, a Windows box without the OpenSSH client), these
 # fail on a missing binary rather than on anything sbx did.
 Describe 'Invoke-SbxSyncSetup' -Skip:(-not (Get-Command ssh-keygen -ErrorAction SilentlyContinue)) {
@@ -182,7 +182,7 @@ Describe 'Invoke-SbxSyncSetup' -Skip:(-not (Get-Command ssh-keygen -ErrorAction 
         $line | Should -BeLike 'restrict,command=*sbx-sync-exec.ps1 -WorkspaceDir /ws"*'
         (Get-SbxSyncConf -SyncDir $script:syncDir).host | Should -Be '172.20.240.1'
     }
-    It 'is idempotent — a second run replaces the line rather than adding one' {
+    It 'is idempotent - a second run replaces the line rather than adding one' {
         $p = @{ Address = '10.0.0.1'; SshUser = 'me'; SyncDir = $script:syncDir
                 AuthorizedKeysFile = $script:ak; WorkspaceDir = '/ws'; ExecPath = $script:exec }
         Invoke-SbxSyncSetup @p | Out-Null

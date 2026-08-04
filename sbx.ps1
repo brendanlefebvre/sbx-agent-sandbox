@@ -4,7 +4,7 @@ function ConvertFrom-SbxArgs {
 
     # Default is foreground ('here'): a bare `sbx` runs in the current terminal so
     # SSH users never have to remember a flag. `--new-window` (aka `--window`/`--win`)
-    # opts into spawning a GUI window — Windows-only (see Resolve-SbxWindow).
+    # opts into spawning a GUI window - Windows-only (see Resolve-SbxWindow).
     $opts = [ordered]@{
         Command = 'attach'; Target = $null; Operation = $null; Window = 'here'
         # sync-setup only (see Invoke-SbxSyncSetup); null means "use the default".
@@ -16,7 +16,7 @@ function ConvertFrom-SbxArgs {
     $positional = [System.Collections.Generic.List[string]]::new()
 
     # Options that consume the NEXT argument as their value. Kept as a table so the
-    # loop below stays a plain if/elseif chain — `continue` inside a `switch` inside
+    # loop below stays a plain if/elseif chain - `continue` inside a `switch` inside
     # a `for` is ambiguous in PowerShell (switch-arm vs enclosing-loop), and getting
     # it wrong here would silently swallow a value as a positional.
     $valueOpts = @{
@@ -68,7 +68,7 @@ function ConvertFrom-SbxArgs {
         'status'  { $opts.Command = 'status' }
         default {
             if ($positional[0] -match '[\\/]') {
-                throw "sbx: '$($positional[0])' looks like a path — v2 takes project names; run 'sbx add <path>' once, then 'sbx <name>'"
+                throw "sbx: '$($positional[0])' looks like a path - v2 takes project names; run 'sbx add <path>' once, then 'sbx <name>'"
             }
             if ($positional[0] -in @('.', '..')) { throw "sbx: invalid project name" }
             $opts.Command = 'attach'; $opts.Target = $positional[0]
@@ -97,7 +97,7 @@ function ConvertTo-SbxMountPath {
     # WINNING FORM per docs/FINDINGS.md: host Windows drive-letter path,
     # forward-slash normalized (backslash also binds, but forward slashes are
     # safe across the wt.exe -> pwsh -Command string hop). The /mnt/c form
-    # was tested and mounts an empty location — never emit it.
+    # was tested and mounts an empty location - never emit it.
     $drive = $matches[1].ToUpper()
     $rest  = $matches[2] -replace '\\', '/'
     return "${drive}:/$rest"
@@ -133,7 +133,7 @@ function Build-SbxWtBody {
     # Best-effort cleanup: when the container exits (claude quits) or the window
     # is closed, stop+remove it so it doesn't linger in `sbx ls`. wslc keeps the
     # container running when the client disconnects, and a forced window close
-    # only gives pwsh a brief window to run `finally`, so this is best-effort —
+    # only gives pwsh a brief window to run `finally`, so this is best-effort -
     # if it's ever skipped, clean up by hand (see Remove-SbxContainer).
     $body = "`$a = $argExpr; "
     if ($Name) {
@@ -232,12 +232,12 @@ function Invoke-Sbx {
                 $workspaceDir = Get-SbxWorkspacePath
                 $projectDir = Join-Path $workspaceDir $o.Target
                 if (-not (Test-Path -LiteralPath $projectDir)) {
-                    throw "sbx: no project '$($o.Target)' in the workspace — 'sbx add <path>' first (or 'sbx ls')"
+                    throw "sbx: no project '$($o.Target)' in the workspace - 'sbx add <path>' first (or 'sbx ls')"
                 }
                 # Guard against traversal (`sbx ..`): the resolved dir must be a DIRECT
                 # CHILD of the workspace, not merely *somewhere under* it.
                 if ((Get-Item -LiteralPath $projectDir).Parent.FullName -ne (Get-Item -LiteralPath $workspaceDir).FullName) {
-                    throw "sbx: no project '$($o.Target)' in the workspace — 'sbx add <path>' first (or 'sbx ls')"
+                    throw "sbx: no project '$($o.Target)' in the workspace - 'sbx add <path>' first (or 'sbx ls')"
                 }
                 $session = Get-SbxSessionName $o.Target
                 $workdir = "/work/$($o.Target)"
@@ -277,7 +277,7 @@ function ConvertFrom-DockerPs {
 function ConvertFrom-WslcList {
     # $Json is [string[]], NOT [string]: `& wslc list --all --format json` returns one
     # array element per output line. Parameter binding refuses to convert a string[]
-    # to a [string] parameter (unlike an explicit [string] cast, which joins) — that
+    # to a [string] parameter (unlike an explicit [string] cast, which joins) - that
     # mismatch broke `sbx ls` on Windows with "Cannot convert value to type
     # System.String". Join the lines back before parsing.
     [CmdletBinding()] param([string[]]$Json)
@@ -362,7 +362,7 @@ function Resolve-SbxWindow {
     param([bool]$OnWindows = $IsWindows, [string]$Requested = 'here')
     if ($OnWindows) { return $Requested }
     # Non-Windows: there is no wt.exe backend, so GUI window/tab spawning is
-    # unsupported — fall back to (or, for an explicit request, reject in favor of)
+    # unsupported - fall back to (or, for an explicit request, reject in favor of)
     # foreground. `--new-window`/`--window`/`--win` are Windows-only for now.
     if ($Requested -eq 'window') { throw "sbx: --new-window is not supported on this platform (Windows only, for now)" }
     if ($Requested -eq 'tab')    { throw "sbx: --tab is not supported on this platform (foreground only)" }
@@ -380,7 +380,7 @@ function Install-SbxShim {
     $shim = Join-Path $BinDir 'sbx'
     $body = @(
         '#!/bin/sh'
-        '# sbx launcher shim (macOS) — execs the pwsh CLI entry point.'
+        '# sbx launcher shim (macOS) - execs the pwsh CLI entry point.'
         "exec pwsh -NoProfile -File `"$RepoDir/sbx-cli.ps1`" `"`$@`""
     ) -join "`n"
     Set-Content -Path $shim -Value $body
@@ -433,7 +433,7 @@ function Get-SbxOrigins {
         $parsed = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json -AsHashtable -ErrorAction Stop
     }
     catch {
-        throw "sbx: origins manifest at $ManifestPath is corrupt ($($_.Exception.Message)) — fix or delete it, then re-run"
+        throw "sbx: origins manifest at $ManifestPath is corrupt ($($_.Exception.Message)) - fix or delete it, then re-run"
     }
     if ($parsed -is [hashtable]) { return $parsed }
     return @{}
@@ -454,10 +454,10 @@ function New-SbxLink {
           [Parameter(Mandatory)][string]$TargetPath,
           [bool]$IsWin = $IsWindows)
     # Junction ONLY on Windows (no admin / Developer Mode needed; resolved by
-    # NTFS for every local accessor); symlink everywhere else — macOS host AND
+    # NTFS for every local accessor); symlink everywhere else - macOS host AND
     # the Linux container, where self-hosted test runs execute this code and
     # `New-Item -ItemType Junction` silently yields a plain directory. The
-    # container never traverses these links either way — it sees the REAL dir
+    # container never traverses these links either way - it sees the REAL dir
     # in the workspace (FINDINGS 2026-07-22).
     if (-not $IsWin) { $null = New-Item -ItemType SymbolicLink -Path $LinkPath -Target $TargetPath -ErrorAction Stop }
     else        { $null = New-Item -ItemType Junction     -Path $LinkPath -Target $TargetPath -ErrorAction Stop }
@@ -468,7 +468,7 @@ function Stop-SbxSession {
     param([Parameter(Mandatory)][string]$Name,
           [string]$Runtime = (Resolve-SbxRuntime))
     # Best-effort: session may not exist, sbx-main may be down, or runtime may be
-    # missing from PATH. Never fatal — swallow all errors including CommandNotFoundException.
+    # missing from PATH. Never fatal - swallow all errors including CommandNotFoundException.
     try { $null = & $Runtime exec sbx-main tmux kill-session -t (Get-SbxSessionName $Name) 2>$null } catch { }
 }
 
@@ -481,7 +481,7 @@ function Add-SbxProject {
     if (-not $resolved) { throw "sbx: path not found: $Path" }
     $src  = $resolved.Path.TrimEnd('\', '/')
     $item = Get-Item -LiteralPath $src
-    if ($item.LinkType) { throw "sbx: $src is already a link — was it added already?" }
+    if ($item.LinkType) { throw "sbx: $src is already a link - was it added already?" }
     $name = Split-Path -Leaf $src
     if ($name -eq 'hub') { throw "sbx: 'hub' is reserved for the orchestrator session" }
     $dest = Join-Path $WorkspaceDir $name
@@ -501,13 +501,13 @@ function Add-SbxProject {
         New-Item -ItemType Directory -Force $WorkspaceDir | Out-Null
     }
     if ((Get-SbxVolumeRoot $src) -ne (Get-SbxVolumeRoot $WorkspaceDir)) {
-        throw "sbx: $src is on a different volume than the workspace ($WorkspaceDir); a cross-volume add would copy instead of rename — not supported"
+        throw "sbx: $src is on a different volume than the workspace ($WorkspaceDir); a cross-volume add would copy instead of rename - not supported"
     }
     Invoke-SbxOutsidePath -Path @($src) -Action {
         Move-Item -LiteralPath $src -Destination $dest -ErrorAction Stop
         New-SbxLink -LinkPath $src -TargetPath $dest
     }
-    # Manifest write happens ONLY after both the move and the link succeed — a
+    # Manifest write happens ONLY after both the move and the link succeed - a
     # failure in either throws (ErrorAction Stop) before we reach here, so we
     # never record an entry the filesystem doesn't back up.
     $origins = Get-SbxOrigins -ManifestPath $ManifestPath
@@ -522,10 +522,10 @@ function Invoke-SbxOutsidePath {
           [Parameter(Mandatory)][scriptblock]$Action)
     # PowerShell's FileSystemProvider refuses Move-Item/Remove-Item on an item
     # that is (or contains) the session's current location ("Cannot move item
-    # because the item ... is in use") — even on Unix, where a bare rename(2)
+    # because the item ... is in use") - even on Unix, where a bare rename(2)
     # would succeed. Since `sbx add` is most naturally run from inside the very
     # repo being added, step out to the first path's parent for the duration,
-    # then return to the SAME logical path — which, post-move, resolves through
+    # then return to the SAME logical path - which, post-move, resolves through
     # the freshly created link, so the caller's location never appears to move.
     $here = (Get-Location).Path
     $sep  = [IO.Path]::DirectorySeparatorChar
@@ -560,21 +560,21 @@ function Remove-SbxProject {
     $origins = Get-SbxOrigins -ManifestPath $ManifestPath
     $origin  = $origins[$Name]
     if (-not $origin) {
-        throw "sbx: no recorded origin for '$Name' — move it back by hand from $dest and reconcile $ManifestPath"
+        throw "sbx: no recorded origin for '$Name' - move it back by hand from $dest and reconcile $ManifestPath"
     }
     # SAFETY GATE: the manifest names the move-back target, but the LINK is the
     # proof. Only proceed if the origin path is currently a link pointing at the
-    # workspace copy — anything else means the world changed under us.
+    # workspace copy - anything else means the world changed under us.
     $link = Get-Item -LiteralPath $origin -ErrorAction SilentlyContinue
     $wantTarget = (Get-Item -LiteralPath $dest).FullName
     $gotTarget  = if ($link -and $link.LinkType) { @($link.Target)[0] } else { $null }
     if (-not $gotTarget -or
         ([IO.Path]::GetFullPath($gotTarget) -ne [IO.Path]::GetFullPath($wantTarget))) {
-        throw "sbx: origin check failed for '$Name': expected $origin to be a link to $dest — refusing to move anything. Reconcile by hand."
+        throw "sbx: origin check failed for '$Name': expected $origin to be a link to $dest - refusing to move anything. Reconcile by hand."
     }
     Stop-SbxSession -Name $Name -Runtime $Runtime
     # pwsh 7 Remove-Item on a junction/symlink dir removes the REPARSE POINT only
-    # (no recursion into the target) — but never pass -Recurse here.
+    # (no recursion into the target) - but never pass -Recurse here.
     # -ErrorAction Stop on both: under default ErrorActionPreference a failed
     # Remove-Item/Move-Item is non-terminating, so execution would otherwise fall
     # through to the manifest write below and manufacture the "no recorded
@@ -602,13 +602,13 @@ function Build-SbxMainCreateArgs {
                             '-v',"${AuthVolume}:/home/agent/.claude"))
     # c-heavy: the dedicated sync key, read-only, ONLY when sync-setup has run.
     # Lands at the image's existing .ssh-ro staging point, whose entrypoint copies
-    # it to ~/.ssh at 0600 — bind mounts arrive 0777 and ssh refuses such a key.
+    # it to ~/.ssh at 0600 - bind mounts arrive 0777 and ssh refuses such a key.
     if ($SyncDir) {
         $sd = ConvertTo-SbxMountPath -HostPath $SyncDir -Posix:$Posix
         $a.AddRange([string[]]@('-v',"${sd}:/home/agent/.ssh-ro:ro"))
     }
     # c-gh: the GitHub PAT, read-only, ONLY when gh-setup has run. Lands at
-    # .gh-ro, whose entrypoint feeds it to `gh auth login` — see Sandboxfile.
+    # .gh-ro, whose entrypoint feeds it to `gh auth login` - see Sandboxfile.
     if ($GhDir) {
         $gd = ConvertTo-SbxMountPath -HostPath $GhDir -Posix:$Posix
         $a.AddRange([string[]]@('-v',"${gd}:/home/agent/.gh-ro:ro"))
@@ -626,7 +626,7 @@ function Build-SbxAttachArgs {
           [string]$WorkDir = '/work',
           [string]$Name = 'sbx-main')
     # `new-session -A` attaches if the session exists, creates it (running
-    # claude) if not — one verb for both cases.
+    # claude) if not - one verb for both cases.
     return @('exec','-it',$Name,'tmux','new-session','-A',
              '-s',$Session,'-c',$WorkDir,
              'claude','--dangerously-skip-permissions')
@@ -641,7 +641,7 @@ function Build-SbxScratchArgs {
              '-v',"${AuthVolume}:/home/agent/.claude",
              # Throwaway per-run projects volume: scratch cwd is /work (image
              # WORKDIR), the same history key the hub session uses in the shared
-             # auth volume — without this override a scratch /resume menu shows
+             # auth volume - without this override a scratch /resume menu shows
              # hub and prior-scratch sessions. wslc rejects anonymous volumes
              # (E_INVALIDARG, see FINDINGS), so it's named after the container
              # and reaped in the same best-effort cleanup.
@@ -670,7 +670,7 @@ function Get-SbxMainState {
 function Get-SbxHostGitIdentity {
     [CmdletBinding()]
     param()
-    # The host's own git identity is the default source of truth — the sandbox
+    # The host's own git identity is the default source of truth - the sandbox
     # commits as the human who owns the machine. SBX_GIT_USER_* overrides it for
     # anyone who wants sandbox commits attributed differently.
     # Read HOST-level scope only (global/system) via Get-SbxHostGitConfig, never
@@ -691,7 +691,7 @@ function Build-SbxGitIdentityArgs {
           [Parameter(Mandatory)][string]$Email,
           [string]$Name = 'sbx-main')
     # `git config` writes to GIT_CONFIG_GLOBAL, which the image points into the
-    # auth volume — so this seeds once and outlives every rebuild. Values ride as
+    # auth volume - so this seeds once and outlives every rebuild. Values ride as
     # separate argv elements through exec (no shell), so a name with spaces or
     # quotes needs no escaping and can't break out into a second config key.
     # Built as one variable, NOT a '...' + '...' literal inside the @(): a trailing
@@ -711,9 +711,9 @@ function Set-SbxContainerGitIdentity {
           [object]$Identity = (Get-SbxHostGitIdentity))
     # Best-effort and non-fatal: a sandbox that comes up without an identity is
     # still a working sandbox, just one that will ask for `git config` on first
-    # commit — the status quo. Never let it block the launch.
+    # commit - the status quo. Never let it block the launch.
     if (-not $Identity) {
-        Write-Warning "sbx: no git identity on this host (git config user.name/user.email) — container commits will need one; set SBX_GIT_USER_NAME/EMAIL to override"
+        Write-Warning "sbx: no git identity on this host (git config user.name/user.email) - container commits will need one; set SBX_GIT_USER_NAME/EMAIL to override"
         return
     }
     $a = Build-SbxGitIdentityArgs -UserName $Identity.Name -Email $Identity.Email -Name $Name
@@ -740,7 +740,7 @@ function Start-SbxMain {
             }
             $createArgs = Build-SbxMainCreateArgs -WorkspacePath $WorkspaceDir -Posix:$IsMacOS
             $null = & $Runtime @createArgs
-            # Seed on create, which is also what `sbx rebuild` does — so the fix
+            # Seed on create, which is also what `sbx rebuild` does - so the fix
             # lands on exactly the path where the old identity used to vanish.
             Set-SbxContainerGitIdentity -Runtime $Runtime
         }
@@ -770,7 +770,7 @@ function Get-SbxWorkspaceChildDenial {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Dir,
           [Parameter(Mandatory)][string]$WorkspaceDir)
-    # The workspace-containment guard, in ONE place, called TWICE per sync — once
+    # The workspace-containment guard, in ONE place, called TWICE per sync - once
     # by Resolve-SbxSyncRequest before the lock, once by Invoke-SbxSyncGit after
     # it. That is not redundancy. The container holds the workspace read-write for
     # the whole window in between, so it can delete the directory we validated and
@@ -785,25 +785,25 @@ function Get-SbxWorkspaceChildDenial {
     $item = Get-Item -LiteralPath $Dir -Force
     # A LINK is never a project. `sbx add` puts real directories here (the link it
     # leaves behind points the other way, at the origin), so nothing legitimate is
-    # refused — while a link planted by the container would sail through the parent
+    # refused - while a link planted by the container would sail through the parent
     # check below and aim host-side git at any directory on the host.
     # Attributes AND LinkType: on wslc, a link the container plants whose target is
     # container-only (`ln -s /etc /work/x`) surfaces host-side with LinkType EMPTY
     # but ReparsePoint set, so LinkType alone is not a complete test on this
-    # platform (FINDINGS P10). The reachable case — a relative link that resolves
-    # host-side — does report LinkType, and is caught either way.
+    # platform (FINDINGS P10). The reachable case - a relative link that resolves
+    # host-side - does report LinkType, and is caught either way.
     if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -or $item.LinkType) {
-        return "'$name' is a link, not a workspace project — refusing to sync through it"
+        return "'$name' is a link, not a workspace project - refusing to sync through it"
     }
     # A project is a directory. Checked explicitly rather than inferred from the
     # parent comparison below: a FileInfo has no .Parent, so that comparison used to
-    # deny a plain file only by reading $null off a property that isn't there —
+    # deny a plain file only by reading $null off a property that isn't there -
     # correct outcome, accidental mechanism, and a throw under StrictMode.
     if ($item -isnot [IO.DirectoryInfo]) { return "no project '$name' in the workspace" }
     # Direct-child gate: the repo's parent must BE the workspace, not merely
     # contain it somewhere up the tree. Catches `..` escapes that survive the
     # lexical check in Resolve-SbxSyncRequest. Both sides stay in the caller's
-    # spelling — resolving only one of them would break any user whose workspace
+    # spelling - resolving only one of them would break any user whose workspace
     # path crosses a link.
     if (-not (Test-Path -LiteralPath $WorkspaceDir)) { return "no project '$name' in the workspace" }
     if ($item.Parent.FullName -ne (Get-Item -LiteralPath $WorkspaceDir).FullName) {
@@ -817,14 +817,14 @@ function Resolve-SbxSyncRequest {
     param([string]$Name,
           [string]$Operation,
           [Parameter(Mandatory)][string]$WorkspaceDir)
-    # THE security core of both sync paths — c-lite (`sbx sync`, host-side, run by
+    # THE security core of both sync paths - c-lite (`sbx sync`, host-side, run by
     # the human) and c-heavy (the SSH forced command, run by an agent in the
     # container). One implementation so the two can never drift: whatever the
     # container can ask for is exactly what the human's own command allows.
     #
     # Returns a decision object rather than throwing so the forced command can
     # answer with a structured REJECT line while the CLI throws. Side-effect free
-    # apart from reading the filesystem to confirm the repo — it never runs git.
+    # apart from reading the filesystem to confirm the repo - it never runs git.
     $deny = { param($r) [pscustomobject]@{ Ok = $false; Name = $null; Operation = $null; Dir = $null; Reason = $r } }
 
     # Verb allowlist. A wider surface (arbitrary git args) would turn this into a
@@ -841,7 +841,7 @@ function Resolve-SbxSyncRequest {
     $dir = Join-Path $WorkspaceDir $Name
     # Filesystem containment lives in Get-SbxWorkspaceChildDenial, which
     # Invoke-SbxSyncGit re-runs once it holds the lock. Whatever this call
-    # concludes is advisory by the time git opens the directory — read that
+    # concludes is advisory by the time git opens the directory - read that
     # function's note before relying on this one.
     $denial = Get-SbxWorkspaceChildDenial -Dir $dir -WorkspaceDir $WorkspaceDir
     if ($denial) { return (& $deny $denial) }
@@ -856,7 +856,7 @@ function Resolve-SbxSyncCommand {
     # into the two fields Resolve-SbxSyncRequest validates.
     if ([string]::IsNullOrWhiteSpace($OriginalCommand)) {
         return [pscustomobject]@{ Ok = $false; Name = $null; Operation = $null; Dir = $null
-                                  Reason = 'no command (bare connection) — expected "<name> <op>"' }
+                                  Reason = 'no command (bare connection) - expected "<name> <op>"' }
     }
     # Requiring EXACTLY two whitespace-separated tokens is itself a guard: it
     # rejects "push --force", "name; sh", "name op extra", and any shell operator
@@ -876,15 +876,15 @@ function Resolve-SbxSyncCommand {
 # git executes. Verified on this repo's own test rig: an agent-written
 # `.git/hooks/pre-push` runs host-side as the host user on `sbx sync push`, and a
 # repo-local `core.sshCommand` does the same on fetch. So the allowlist of three
-# verbs is NOT by itself a boundary — the git invocation has to be shut down too.
+# verbs is NOT by itself a boundary - the git invocation has to be shut down too.
 #
 # Two tiers, and the difference matters:
-#   * `-c` pins below are RACELESS — command-line config beats every file, and the
+#   * `-c` pins below are RACELESS - command-line config beats every file, and the
 #     container cannot edit our argv. This is the part to rely on.
 #   * the local-config denylist is ADVISORY: the container can rewrite
 #     .git/config after we read it and before git does. It catches accidents and
 #     the lazy attack, not a determined one.
-# Residual risk is real and documented in docs/SYNC.md — read it before enabling
+# Residual risk is real and documented in docs/SYNC.md - read it before enabling
 # c-heavy on a machine where host compromise matters.
 
 function Get-SbxNoHooksDir {
@@ -907,19 +907,19 @@ function Get-SbxGitHardeningArgs {
     # Not a `-c core.pager=cat` pin: `cat` doesn't exist on Windows. --no-pager is
     # the portable form and outranks config just the same.
     $a.Add('--no-pager')
-    $a.AddRange([string[]]@('-c', "core.hooksPath=$NoHooksDir"))   # .git/hooks/* — the default path, no config key needed
+    $a.AddRange([string[]]@('-c', "core.hooksPath=$NoHooksDir"))   # .git/hooks/* - the default path, no config key needed
     $a.AddRange([string[]]@('-c', 'core.fsmonitor=false'))          # names a program git spawns
     $a.AddRange([string[]]@('-c', 'protocol.ext.allow=never'))      # ext:: URLs ARE a command line
     $a.AddRange([string[]]@('-c', 'protocol.file.allow=user'))      # submodule-from-local-path exec path
     # core.gitProxy names a program too, and CANNOT be pinned here. Probed against
     # git 2.52.0: it is multi-valued and first-match-wins, so a repo-local value
-    # beats our `-c` even when ours is non-empty — a pin would be pure false
+    # beats our `-c` even when ours is non-empty - a pin would be pure false
     # confidence. It only ever applies to git://, so refuse the transport instead.
     # protocol.<name>.allow IS single-valued, and this beats a repo-local
     # `protocol.git.allow=always` (verified). Nothing is lost: git:// is
     # unauthenticated, so it cannot carry a push worth making.
     $a.AddRange([string[]]@('-c', 'protocol.git.allow=never'))
-    # Runs HOST-side on fetch and pull whenever the repo has an alternate — which
+    # Runs HOST-side on fetch and pull whenever the repo has an alternate - which
     # the container can add, .git being agent-writable. Client-side, despite
     # reading like a serving-side key (probed: a clone FROM the repo does not
     # trigger it, a fetch INTO it does). Empty is a true disable: git falls back to
@@ -929,7 +929,7 @@ function Get-SbxGitHardeningArgs {
     # Single-valued: pin the host's own value, or a safe default if unset.
     # core.editor has no portable no-op ('true' is not a Windows command). That is
     # acceptable: these verbs only reach an editor for an interactive merge, where
-    # failing an unattended sync is the outcome we want anyway — and far better
+    # failing an unattended sync is the outcome we want anyway - and far better
     # than running the editor the repo names.
     foreach ($k in @(@{ Key = 'core.sshCommand'; Fallback = 'ssh' },
                      @{ Key = 'gpg.program';     Fallback = 'gpg' },
@@ -952,7 +952,7 @@ function Get-SbxGitHardeningArgs {
 function Get-SbxHostGitConfig {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Key, [switch]$All)
-    # The HOST's own setting for $Key — global and system scope only, never the
+    # The HOST's own setting for $Key - global and system scope only, never the
     # repo's. Reading --local here would import exactly what we are defending
     # against.
     $getter = if ($All) { '--get-all' } else { '--get' }
@@ -985,7 +985,7 @@ $script:SbxUnsafeGitConfigPatterns = @(
     '^core\.(hookspath|sshcommand|fsmonitor|editor|pager|askpass|gitproxy|alternaterefscommand)$'
     # diff.external is a real key with no middle segment, so the diff.*.textconv
     # pattern below cannot match it. Probed as unreachable through push/pull/fetch
-    # (only `git diff` runs it) — listed anyway, because a denylist that omits a
+    # (only `git diff` runs it) - listed anyway, because a denylist that omits a
     # known exec key is worse than one that over-matches. core.externaldiff, which
     # this list used to name, is not a git key at all.
     '^diff\.external$'
@@ -1007,7 +1007,7 @@ $script:SbxUnsafeGitConfigPatterns = @(
 function Get-SbxUnsafeGitConfig {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Dir)
-    # Advisory only — see the tier note above. --show-scope covers .git/config AND
+    # Advisory only - see the tier note above. --show-scope covers .git/config AND
     # config.worktree, which --local alone would miss. A key whose VALUE contains
     # newlines can inject extra output lines, but only ever adding false
     # positives: it cannot hide a line that git itself will honor.
@@ -1049,7 +1049,7 @@ function Invoke-SbxSyncGit {
     # agents can trigger a push concurrently and the human can run `sbx sync` on
     # top; two `git push`es racing in one worktree otherwise collide on git's own
     # index/ref locks and surface as spurious failures. Different projects never
-    # contend — the lock is per repo dir.
+    # contend - the lock is per repo dir.
     if (-not (Test-Path -LiteralPath $LockDir)) { New-Item -ItemType Directory -Force $LockDir | Out-Null }
     $lockFile = Join-Path $LockDir (((Split-Path -Leaf $Dir) -replace '[^A-Za-z0-9._-]', '_') + '.lock')
     $deadline = (Get-Date).AddSeconds($TimeoutSec)
@@ -1071,13 +1071,13 @@ function Invoke-SbxSyncGit {
         # mid-sync. Everything Resolve-SbxSyncRequest saw is stale: between its
         # check and this line the container could have replaced the project with a
         # link to anywhere on the host, and git would have followed it. Same tier
-        # as the config check below — both re-read state the container owns, as
+        # as the config check below - both re-read state the container owns, as
         # late as we can manage.
         $denial = Get-SbxWorkspaceChildDenial -Dir $Dir -WorkspaceDir $WorkspaceDir
         if ($denial) { throw "sbx: $denial" }
         $unsafe = Get-SbxUnsafeGitConfig -Dir $Dir
         if ($unsafe) {
-            throw ("sbx: refusing to sync '$(Split-Path -Leaf $Dir)' — its repo-local git config sets " +
+            throw ("sbx: refusing to sync '$(Split-Path -Leaf $Dir)' - its repo-local git config sets " +
                    "$($unsafe -join ', '), which git executes as a program on THIS host. " +
                    "Inspect it (git -C `"$Dir`" config --list --show-scope) and remove the key if you did not set it.")
         }
@@ -1090,8 +1090,8 @@ function Invoke-SbxSyncGit {
         & git @gitArgs
         # git's own stderr already told the human what went wrong; this makes the
         # FAILURE ITSELF programmatic. Without it a rejected push returns cleanly:
-        # c-lite reports nothing amiss, and the forced command's catch — the only
-        # thing that emits the documented FAILED line — never fires.
+        # c-lite reports nothing amiss, and the forced command's catch - the only
+        # thing that emits the documented FAILED line - never fires.
         if ($LASTEXITCODE -ne 0) {
             throw "sbx: git $Operation failed (exit $LASTEXITCODE) in '$(Split-Path -Leaf $Dir)'"
         }
@@ -1106,7 +1106,7 @@ function Invoke-SbxSync {
           [string]$WorkspaceDir = (Get-SbxWorkspacePath))
     # c-lite sync (see spec): host-side git with host credentials, run by the
     # human. c-heavy (`sbx sync-setup`) lets an agent reach the SAME core through
-    # an SSH forced command — see sbx-sync-exec.ps1.
+    # an SSH forced command - see sbx-sync-exec.ps1.
     $d = Resolve-SbxSyncRequest -Name $Name -Operation $Operation -WorkspaceDir $WorkspaceDir
     if (-not $d.Ok) { throw "sbx: $($d.Reason)" }
     # Pass the workspace on: Invoke-SbxSyncGit re-checks containment under the lock
@@ -1120,7 +1120,7 @@ function Invoke-SbxSync {
 # `sbx sync-setup` provisions a DEDICATED keypair for the container and pins it in
 # the host's authorized_keys with `restrict,command="… sbx-sync-exec.ps1 …"`. A
 # connection with that key can only invoke the validator for {push,pull,fetch} on
-# a workspace repo — never a shell, never forwarding, never another key's reach.
+# a workspace repo - never a shell, never forwarding, never another key's reach.
 # This deliberately trades away the c-lite "agents commit, human pushes" gate.
 
 $script:SbxSyncTag = 'sbx-sync'
@@ -1147,7 +1147,7 @@ function Get-SbxSyncKeyPath {
 function Get-SbxProvisionedSyncDir {
     [CmdletBinding()]
     param([string]$SyncDir = (Get-SbxSyncDir))
-    # $null unless c-heavy is actually provisioned — callers use it to decide
+    # $null unless c-heavy is actually provisioned - callers use it to decide
     # whether sbx-main gets the key mount at all. No setup, no key in the sandbox.
     if (Test-Path -LiteralPath (Get-SbxSyncKeyPath -SyncDir $SyncDir)) { return $SyncDir }
     return $null
@@ -1161,7 +1161,7 @@ function New-SbxSyncKey {
     if (-not (Test-Path -LiteralPath $SyncDir)) { New-Item -ItemType Directory -Force $SyncDir | Out-Null }
     Remove-Item -LiteralPath $key, "$key.pub" -Force -ErrorAction SilentlyContinue
     # No passphrase: the container must use it unattended. That is the whole
-    # threat model — the key's authority is bounded by the forced command, not by
+    # threat model - the key's authority is bounded by the forced command, not by
     # secrecy of use.
     & ssh-keygen -t ed25519 -N '' -C $script:SbxSyncTag -f $key -q
     if ($LASTEXITCODE -ne 0) { throw "sbx: ssh-keygen failed (exit $LASTEXITCODE)" }
@@ -1175,7 +1175,7 @@ function Get-SbxPwshCommand {
     # Windows: bare `pwsh` resolves via sshd's PATH, and the absolute path
     # ("C:\Program Files\PowerShell\...") carries a space we'd have to re-quote.
     # macOS: the login shell's PATH usually lacks Homebrew, so pin an absolute
-    # path — but the BIN WRAPPER, not the Cellar apphost it resolves to: the
+    # path - but the BIN WRAPPER, not the Cellar apphost it resolves to: the
     # apphost fails "missing runtime" without the wrapper's DOTNET_ROOT (P7).
     if ($IsWin) { return 'pwsh' }
     $cand = @('/opt/homebrew/bin/pwsh', '/usr/local/bin/pwsh', '/usr/bin/pwsh') |
@@ -1194,7 +1194,7 @@ function ConvertTo-SbxSshCommandArg {
     # have to reason about backslash escaping; a path containing spaces gets an
     # inner \"-escaped\" pair, which is what sshd's option parser understands.
     $p = $Path -replace '\\', '/'
-    # A `"` would close command=" early and leave a line sshd still accepts — same
+    # A `"` would close command=" early and leave a line sshd still accepts - same
     # key, forced command truncated or gone, i.e. NOT restricted any more. There is
     # no escape that sshd's option parser honors here, so refuse the path instead.
     if ($p.Contains('"')) { throw "sbx: cannot pin a forced command for a path containing a double quote: $Path" }
@@ -1214,7 +1214,7 @@ function Build-SbxAuthorizedKeysLine {
     # `command=` pins the only thing this key can ever run. Both are load-bearing.
     $fields = ($PublicKey.Trim() -split '\s+')
     if ($fields.Count -lt 2) { throw "sbx: not a public key: $PublicKey" }
-    # Rewrite the comment to exactly our tag — that comment is how Update-SbxAuthorizedKeys
+    # Rewrite the comment to exactly our tag - that comment is how Update-SbxAuthorizedKeys
     # finds OUR line later, so it must be ours alone and stable across rotations.
     $pub = "$($fields[0]) $($fields[1]) $Tag"
     $cmd = "$PwshCommand -NoProfile -File $(ConvertTo-SbxSshCommandArg $ExecPath)" +
@@ -1228,7 +1228,7 @@ function Get-SbxAuthorizedKeysPath {
     if ($Override) { return $Override }
     if ($IsWin) {
         # Win32-OpenSSH reads administrators_authorized_keys instead of the
-        # per-user file for members of local Administrators — but ONLY when the
+        # per-user file for members of local Administrators - but ONLY when the
         # sshd_config Match block is in force. Use it if it EXISTS; never create
         # it (P7: creating it takes precedence for admins from then on and can
         # lock out normal logins). Absent → the per-user file, which is what the
@@ -1245,11 +1245,11 @@ function Update-SbxAuthorizedKeys {
           [string]$Line,
           [string]$Tag = $script:SbxSyncTag,
           [switch]$Remove)
-    # Edits ONE line — ours, identified by the trailing comment $Tag — and leaves
+    # Edits ONE line - ours, identified by the trailing comment $Tag - and leaves
     # every other byte of the file alone. Two P7 lessons are baked in:
     #  1. a file whose last line lacks a newline MERGES an appended entry onto it
     #     (the old key survives with a longer comment, ours silently vanishes);
-    #  2. never line-edit a real key file without an exact snapshot first — an
+    #  2. never line-edit a real key file without an exact snapshot first - an
     #     early harness rewrite blanked a user's real key.
     $dir = Split-Path -Parent $Path
     if ($dir -and -not (Test-Path -LiteralPath $dir)) {
@@ -1278,7 +1278,7 @@ function Update-SbxAuthorizedKeys {
         $kept.Add($Line)
     }
     # Always terminate the final line: the next tool to append (ours or anyone
-    # else's) must not merge onto it. WriteAllText for byte-exact control —
+    # else's) must not merge onto it. WriteAllText for byte-exact control -
     # Out-File would add a BOM that sshd treats as part of the first key.
     $text = if ($kept.Count) { ($kept -join $eol) + $eol } else { '' }
     # Write beside it and swap, rather than truncating in place: an interrupted
@@ -1291,7 +1291,7 @@ function Update-SbxAuthorizedKeys {
     try {
         if ($existed) {
             # Replace, not Move: it preserves the DESTINATION's ACL and attributes.
-            # A move would hand the new file the directory's inherited ACL — and
+            # A move would hand the new file the directory's inherited ACL - and
             # for administrators_authorized_keys, an ACL sshd doesn't like means
             # it silently ignores every key in it (see Set-SbxAdminKeysAcl).
             [IO.File]::Replace($tmp, $Path, $null)
@@ -1313,11 +1313,11 @@ function Set-SbxAdminKeysAcl {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Path)
     # sshd SILENTLY ignores administrators_authorized_keys unless it is writable
-    # only by Administrators + SYSTEM — a rejected key with no visible cause.
+    # only by Administrators + SYSTEM - a rejected key with no visible cause.
     # Well-known SIDs, not names: the groups are localized.
     & icacls $Path /inheritance:r /grant '*S-1-5-32-544:F' /grant '*S-1-5-18:F' 2>&1 | Out-Null
     if ($LASTEXITCODE -ne 0) {
-        Write-Warning "sbx: could not tighten the ACL on $Path — sshd may ignore it. Run (elevated): icacls `"$Path`" /inheritance:r /grant `"Administrators:F`" /grant `"SYSTEM:F`""
+        Write-Warning "sbx: could not tighten the ACL on $Path - sshd may ignore it. Run (elevated): icacls `"$Path`" /inheritance:r /grant `"Administrators:F`" /grant `"SYSTEM:F`""
     }
 }
 
@@ -1333,7 +1333,7 @@ function Write-SbxSyncConf {
     if (-not (Test-Path -LiteralPath $SyncDir)) { New-Item -ItemType Directory -Force $SyncDir | Out-Null }
     $path = Join-Path $SyncDir 'sync.conf'
     # LF endings and no BOM: this is parsed by /bin/sh inside the container.
-    $body = (@("# written by sbx sync-setup — read by the in-container `sbx sync` client",
+    $body = (@("# written by sbx sync-setup - read by the in-container `sbx sync` client",
                "host=$Address", "user=$SshUser", "port=$Port") -join "`n") + "`n"
     [IO.File]::WriteAllText($path, $body, [Text.UTF8Encoding]::new($false))
     return $path
@@ -1367,15 +1367,15 @@ function Invoke-SbxSyncSetup {
     if ($Remove) {
         $r = Update-SbxAuthorizedKeys -Path $akPath -Remove
         Remove-Item -LiteralPath $SyncDir -Recurse -Force -ErrorAction SilentlyContinue
-        Write-Host "sbx: c-heavy sync revoked — key material removed from $SyncDir$(if ($r.Replaced) { "; authorized_keys line dropped from $akPath" } else { "; no tagged line found in $akPath" })" -ForegroundColor Yellow
+        Write-Host "sbx: c-heavy sync revoked - key material removed from $SyncDir$(if ($r.Replaced) { "; authorized_keys line dropped from $akPath" } else { "; no tagged line found in $akPath" })" -ForegroundColor Yellow
         Write-Host "sbx: run 'sbx rebuild' to drop the key mount from the running sandbox." -ForegroundColor Yellow
         return
     }
     if (-not $Address) {
         throw @"
 sbx: sync-setup needs the host address the CONTAINER should dial: sbx sync-setup --address <addr>
-     Auto-discovery is unreliable (FINDINGS P7) — pin it yourself:
-       Windows: the WSL vEthernet gateway (e.g. 172.20.240.1) — host-only, preferred
+     Auto-discovery is unreliable (FINDINGS P7) - pin it yourself:
+       Windows: the WSL vEthernet gateway (e.g. 172.20.240.1) - host-only, preferred
        macOS:   host.docker.internal
      Check it from inside the sandbox first:  ssh -p $Port $SshUser@<addr>
 "@
@@ -1402,7 +1402,7 @@ sbx: sync-setup needs the host address the CONTAINER should dial: sbx sync-setup
     Write-Host "  key         $key (mounted read-only into sbx-main)"
     Write-Host "  config      $conf  ->  $SshUser@${Address}:$Port"
     Write-Host "  authorized  $akPath $(if ($r.Replaced) { '(replaced the previous sbx-sync line)' } else { '(appended)' }); backup at $($r.Backup)"
-    Write-Host "  agents get  push / pull / fetch on workspace repos — nothing else." -ForegroundColor DarkGray
+    Write-Host "  agents get  push / pull / fetch on workspace repos - nothing else." -ForegroundColor DarkGray
     Write-Host "sbx: run 'sbx rebuild' so sbx-main picks up the key, then 'sbx sync push' from inside a project." -ForegroundColor Cyan
     return [pscustomobject]@{ Key = $key; Config = $conf; AuthorizedKeys = $akPath; Address = $Address }
 }
@@ -1422,7 +1422,7 @@ function Test-SbxInAdministrators {
 # ---- c-gh: GitHub CLI token provisioning (ROADMAP; see docs/GH.md) -------------
 #
 # Unlike c-heavy sync, there is no host-side forced-command validator possible
-# here — the GitHub REST/GraphQL API has no equivalent primitive. The PAT's own
+# here - the GitHub REST/GraphQL API has no equivalent primitive. The PAT's own
 # scopes (repos + Contents/Pull-requests permissions, chosen on github.com when
 # you create it) ARE the boundary. This section only gets the token onto disk
 # and mounted; it enforces nothing.
@@ -1445,7 +1445,7 @@ function Get-SbxGhTokenPath {
 function Get-SbxProvisionedGhDir {
     [CmdletBinding()]
     param([string]$GhDir = (Get-SbxGhDir))
-    # $null unless c-gh is actually provisioned — callers use it to decide
+    # $null unless c-gh is actually provisioned - callers use it to decide
     # whether sbx-main gets the token mount at all. No setup, no token in the
     # sandbox.
     if (Test-Path -LiteralPath (Get-SbxGhTokenPath -GhDir $GhDir)) { return $GhDir }
@@ -1479,7 +1479,7 @@ function Invoke-SbxGhSetup {
     if ($Remove) {
         Remove-Item -LiteralPath $GhDir -Recurse -Force -ErrorAction SilentlyContinue
         Write-Host "sbx: c-gh local token removed from $GhDir." -ForegroundColor Yellow
-        Write-Host "sbx: this does NOT revoke the token on GitHub — do that at https://github.com/settings/tokens if it's no longer needed." -ForegroundColor Yellow
+        Write-Host "sbx: this does NOT revoke the token on GitHub - do that at https://github.com/settings/tokens if it's no longer needed." -ForegroundColor Yellow
         Write-Host "sbx: run 'sbx rebuild' to drop the token mount from the running sandbox." -ForegroundColor Cyan
         return
     }
@@ -1491,7 +1491,7 @@ sbx: gh-setup needs a fine-grained GitHub PAT: sbx gh-setup --token-file <path>
        Contents:      Read and write
        Pull requests: Read and write
      Also add a branch-protection rule on the target repo requiring a human
-     review before merge — a token can't be scoped to block merge on its own.
+     review before merge - a token can't be scoped to block merge on its own.
      See docs/GH.md.
 "@
     }
@@ -1519,7 +1519,7 @@ function Get-SbxProjects {
     $origins = Get-SbxOrigins -ManifestPath $ManifestPath
     $live    = Get-SbxLiveSessions -Runtime $Runtime
     # Dot-dirs are infrastructure, not projects (e.g. the planned /work/.sbx
-    # status dir from docs/sbx-agent-status.md) — never list them.
+    # status dir from docs/sbx-agent-status.md) - never list them.
     foreach ($d in (Get-ChildItem -LiteralPath $WorkspaceDir -Directory | Where-Object { $_.Name -notlike '.*' })) {
         [pscustomobject]@{
             Name    = $d.Name
@@ -1534,11 +1534,11 @@ function Invoke-SbxStatus {
     param([string]$Runtime = (Resolve-SbxRuntime),
           [string]$ScriptPath = (Join-Path $PSScriptRoot 'sbx-agent-status.sh'))
     # Fleet oversight cross-check (docs/sbx-agent-status.md): the script needs
-    # tmux, which lives inside sbx-main, so pipe it in over exec's stdin — no
+    # tmux, which lives inside sbx-main, so pipe it in over exec's stdin - no
     # image change, nothing written to the workspace. Read-only by design: if
     # the container isn't up there is nothing to report, so don't start it.
     if ((Get-SbxMainState -Runtime $Runtime) -ne 'running') {
-        return "sbx: sbx-main is not running — nothing to report"
+        return "sbx: sbx-main is not running - nothing to report"
     }
     $execArgs = [System.Collections.Generic.List[string]]::new()
     $execArgs.Add('exec'); $execArgs.Add('-i')
@@ -1564,9 +1564,9 @@ function Get-SbxStatusScriptBody {
     param([Parameter(Mandatory)][string]$ScriptPath)
     # Two CRLF hazards between here and bash: (1) a Windows checkout can hand
     # us the script with CRLF endings, which bash rejects line by line
-    # ($'\r': command not found) — normalize. (2) PowerShell appends a
+    # ($'\r': command not found) - normalize. (2) PowerShell appends a
     # PLATFORM newline (\r\n on Windows) when piping a string into a native
-    # command, so bash would see one trailing line containing just \r — end
+    # command, so bash would see one trailing line containing just \r - end
     # the body with `exit 0` so bash never reads past the real script.
     $body = (Get-Content -LiteralPath $ScriptPath -Raw) -replace "`r`n", "`n"
     return $body.TrimEnd("`n") + "`nexit 0`n"

@@ -40,7 +40,7 @@ $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
 if (($userPath -split ';' | Where-Object { $_ }) -notcontains $repo) {
     $newPath = if ([string]::IsNullOrEmpty($userPath)) { $repo } else { "$($userPath.TrimEnd(';'));$repo" }
     [Environment]::SetEnvironmentVariable('Path', $newPath, 'User')
-    Write-Host "Added $repo to your user PATH (for cmd.exe) — restart shells to pick it up"
+    Write-Host "Added $repo to your user PATH (for cmd.exe) - restart shells to pick it up"
 } else {
     Write-Host "$repo already on your user PATH"
 }

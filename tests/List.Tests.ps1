@@ -32,8 +32,8 @@ Describe 'ConvertFrom-WslcList' {
         $r.Status   | Should -Be 'running'
     }
     # Regression: `& wslc list --all --format json` returns a string[] (one element
-    # per output line). A [string] PARAMETER refuses that outright — unlike an
-    # explicit [string] cast, parameter binding does not join arrays — so `sbx ls`
+    # per output line). A [string] PARAMETER refuses that outright - unlike an
+    # explicit [string] cast, parameter binding does not join arrays - so `sbx ls`
     # blew up on Windows with "Cannot convert value to type System.String".
     It 'accepts wslc''s multi-line string[] output' {
         $lines = @('[{"Name":"sbx-foo-abc","Image":"sbx:latest","State":2},',

@@ -23,8 +23,8 @@ BeforeAll {
     }
 }
 
-# The in-container `sbx sync` client. It is NOT a security boundary — the agent
-# holds the key and can invoke ssh by hand — the boundary is the host-side forced
+# The in-container `sbx sync` client. It is NOT a security boundary - the agent
+# holds the key and can invoke ssh by hand - the boundary is the host-side forced
 # command. What these cover is the contract an agent depends on: the messages that
 # tell it what went wrong, and the ssh options that keep a *misconfigured*
 # container from authenticating as something else.
@@ -83,10 +83,10 @@ Describe 'sbx-sync-client.sh' -Skip:(-not (Get-Command sh -ErrorAction SilentlyC
         $r.Out  | Should -BeLike '*usage: sbx sync*'
     }
 
-    It 'offers ONLY the sync key — no agent, no other identity' {
+    It 'offers ONLY the sync key - no agent, no other identity' {
         # Regression guard for the fix in dacf954. Without IdentitiesOnly, -i only
         # APPENDS to the candidate list, so any other key reachable from the
-        # container could authenticate instead — landing on a session with no
+        # container could authenticate instead - landing on a session with no
         # restrict and no forced command, i.e. a shell on the host.
         Invoke-Client -ClientArgs @('sync', 'myrepo', 'push') -Conf $script:conf `
                       -Key $script:key -FakeSshDir $script:fake | Out-Null
@@ -115,7 +115,7 @@ Describe 'sbx pr check' -Skip:(-not (Get-Command sh -ErrorAction SilentlyContinu
         [IO.File]::WriteAllText($script:conf, "host=10.0.0.1`nuser=me`nport=22`n")
         [IO.File]::WriteAllText($script:key, "KEY")
         # Fake `gh` that records its argv and prints canned output, standing in
-        # for the sync tests' fake `ssh`. No fake `git` — `pr check` is
+        # for the sync tests' fake `ssh`. No fake `git` - `pr check` is
         # deliberately read-only and never shells out to it (see the "why no
         # push here" comment in sbx-client.sh); a stray git invocation would
         # hit the real git and fail the test loudly, which is the point.
@@ -123,7 +123,7 @@ Describe 'sbx pr check' -Skip:(-not (Get-Command sh -ErrorAction SilentlyContinu
         New-Item -ItemType Directory -Force $script:fake | Out-Null
         $script:argvLog = Join-Path $script:tmp 'argv.txt'
         # Same idiom as the fake `ssh` above: a plain double-quoted string with
-        # backtick-escaped `$` and `` `n `` newlines — NOT a here-string, which
+        # backtick-escaped `$` and `` `n `` newlines - NOT a here-string, which
         # would let PowerShell try to interpolate the shell script's own `$1`/`$*`.
         # Matches on "$*" with wildcards rather than positional $1/$2: --paginate
         # shifts the resource-path argument's position, and matching the whole

@@ -1,7 +1,7 @@
 BeforeAll { . "$PSScriptRoot/../sbx.ps1" }
 
-# c-gh provisioning. Unlike c-heavy sync there is no forced-command validator —
-# the PAT's own github.com scopes are the boundary — so these primitives are
+# c-gh provisioning. Unlike c-heavy sync there is no forced-command validator -
+# the PAT's own github.com scopes are the boundary - so these primitives are
 # much smaller: write a token file, mount it, done. See docs/GH.md.
 
 Describe 'Get-SbxGhDir' {
@@ -102,7 +102,7 @@ Describe 'Invoke-SbxGhSetup' {
         $r.Token | Should -Be (Join-Path $script:ghDir 'token')
         Test-Path $r.Token | Should -BeTrue
     }
-    It 'is idempotent — a second run overwrites rather than erroring' {
+    It 'is idempotent - a second run overwrites rather than erroring' {
         Invoke-SbxGhSetup -TokenFile $script:tokenFile -GhDir $script:ghDir | Out-Null
         [IO.File]::WriteAllText($script:tokenFile, 'ghp_rotatedToken')
         $r = Invoke-SbxGhSetup -TokenFile $script:tokenFile -GhDir $script:ghDir

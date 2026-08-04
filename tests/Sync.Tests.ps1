@@ -5,7 +5,7 @@ Describe 'Invoke-SbxSync' {
         $script:ws = Join-Path $TestDrive 'ws'
         New-Item -ItemType Directory -Force (Join-Path $script:ws 'foo') | Out-Null
         # Keep lock files out of the real ~/.sbx/locks during unit runs, and keep
-        # the git hardening out of the argv assertions below — it has its own tests.
+        # the git hardening out of the argv assertions below - it has its own tests.
         Mock -CommandName Get-SbxLockDir        -MockWith { Join-Path $TestDrive 'locks' }
         Mock -CommandName Get-SbxGitHardeningArgs -MockWith { @() }
         Mock -CommandName Get-SbxUnsafeGitConfig  -MockWith { @() }
@@ -24,7 +24,7 @@ Describe 'Invoke-SbxSync' {
         { Invoke-SbxSync -Name 'ghost' -Operation 'push' -WorkspaceDir $script:ws } | Should -Throw '*no project*'
     }
     It 'throws for a traversal name even though the resolved parent dir exists' {
-        # Join-Path $ws '..' resolves to $ws's OWN parent, which genuinely exists —
+        # Join-Path $ws '..' resolves to $ws's OWN parent, which genuinely exists -
         # the naive Test-Path guard alone would let this through. The direct-child
         # containment check must catch it.
         Mock -CommandName git -MockWith { throw 'must not run' }
@@ -113,7 +113,7 @@ Describe 'Invoke-SbxSyncGit locking' {
         $script:calls | Should -Be 2
     }
     It 'times out instead of racing when the lock is already held' {
-        # Simulates the other holder — a concurrent agent's forced command mid-push.
+        # Simulates the other holder - a concurrent agent's forced command mid-push.
         $lock = Join-Path $script:lockDir 'repo.lock'
         New-Item -ItemType Directory -Force $script:lockDir | Out-Null
         $held = [IO.File]::Open($lock, 'OpenOrCreate', 'Write', 'None')
@@ -126,7 +126,7 @@ Describe 'Invoke-SbxSyncGit locking' {
 }
 
 # A rejected push used to return cleanly: c-lite reported nothing, and the forced
-# command printed OK and exited non-zero with no FAILED line — the one shape
+# command printed OK and exited non-zero with no FAILED line - the one shape
 # docs/SYNC.md tells an agent to branch on.
 Describe 'Invoke-SbxSyncGit propagates git failure' {
     BeforeEach {
@@ -165,7 +165,7 @@ Describe 'Invoke-SbxSyncGit propagates git failure' {
 # an agent-written pre-push hook runs HOST-side without these pins.
 Describe 'Get-SbxGitHardeningArgs' {
     BeforeAll { $script:h = (Get-SbxGitHardeningArgs -NoHooksDir '/var/empty-hooks') -join ' ' }
-    It 'aims hooksPath at an empty dir — .git/hooks/* needs no config key to fire' {
+    It 'aims hooksPath at an empty dir - .git/hooks/* needs no config key to fire' {
         $script:h | Should -BeLike '*-c core.hooksPath=/var/empty-hooks*'
     }
     # Every pin, not a sample: CLAUDE.md calls dropping one a widened boundary, so
@@ -179,11 +179,11 @@ Describe 'Get-SbxGitHardeningArgs' {
     # core.gitProxy CANNOT be pinned: it is multi-valued and first-match-wins, so a
     # repo-local value beats our -c even when ours is non-empty (probed, git
     # 2.52.0). It only applies to git://, so the reachable fix is to refuse the
-    # transport — which IS single-valued and does obey the pin.
+    # transport - which IS single-valued and does obey the pin.
     It 'refuses the git:// transport, the only thing core.gitProxy can hook' {
         $script:h | Should -BeLike '*-c protocol.git.allow=never*'
     }
-    It 'pins core.alternateRefsCommand empty — it runs host-side on fetch and pull' {
+    It 'pins core.alternateRefsCommand empty - it runs host-side on fetch and pull' {
         # Empty is the right value here: git falls back to its internal ref listing
         # rather than executing anything. Asserted as an exact argv element, since
         # a -BeLike would also pass if some value crept in after the '='.
@@ -267,7 +267,7 @@ Describe 'workspace entry that is not a directory' {
         Set-Content -LiteralPath $script:file -Value 'x'
     }
     It 'denies a plain file, without leaning on a property FileInfo does not have' {
-        # It denied before this test existed — but only because FileInfo has no
+        # It denied before this test existed - but only because FileInfo has no
         # .Parent, so the direct-child comparison saw $null. StrictMode exposes that
         # as the accident it was: the same call threw "The property 'Parent' cannot
         # be found on this object" instead of returning a denial. Live-observed on
@@ -305,7 +305,7 @@ Describe 'workspace symlink escape' {
 # Validation happens BEFORE the lock; git runs after it. The container owns the
 # workspace read-write throughout, so the directory it validated is not
 # necessarily the directory git opens. The pre-flight check cannot close this on
-# its own — only a re-check on the far side of the lock can.
+# its own - only a re-check on the far side of the lock can.
 Describe 'workspace path swapped between validation and use' {
     BeforeEach {
         $script:ws = Join-Path $TestDrive "race-ws-$([guid]::NewGuid())"
@@ -336,7 +336,7 @@ Describe 'workspace path swapped between validation and use' {
             Should -Throw '*in the workspace*'
     }
     It 'still runs the op when the path is unchanged and legitimate' {
-        # The guard must not cost the happy path — this is the regression that
+        # The guard must not cost the happy path - this is the regression that
         # would make the whole re-check unshippable.
         Mock -CommandName git -MockWith { $global:LASTEXITCODE = 0 }
         Mock -CommandName Get-SbxGitHardeningArgs -MockWith { @() }
