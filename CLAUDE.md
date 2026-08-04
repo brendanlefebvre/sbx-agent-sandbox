@@ -12,6 +12,10 @@ for the implementation plan.
   auth volume once with `docker volume create sbx-claude-auth`. The verified macOS
   runtime is **OrbStack** (its `docker` CLI); see `docs/FINDINGS.md` for what that
   scopes — notably the volume-ownership result that lets us ship an unmodified image.
+- `rebuild-image.ps1` at repo root encapsulates the full cycle: builds the image (runtime
+  auto-detected via `Resolve-SbxRuntime`/`SBX_RUNTIME`, same as everywhere else), then
+  calls `Invoke-SbxRebuild` to recreate `sbx-main` from it. `-Force` skips the rebuild
+  confirmation prompt. Standalone script, deliberately not a `sbx` subcommand.
 - The container runtime is `wslc` on Windows / `docker` on macOS, overridable via
   `SBX_RUNTIME` (e.g. podman/colima/orbstack). The override is honored everywhere,
   including the Windows `--new-window`/`--tab` spawn modes (the runtime and its
@@ -73,6 +77,7 @@ for the implementation plan.
   `Get-SbxGitHardeningArgs` (raceless `-c` pins) is load-bearing security, not
   tidiness. Adding a verb, or dropping a pin, widens a boundary.
 - Changing the in-container `sbx sync` client means changing the image
-  (`Sandboxfile`) — rebuild the image and `sbx rebuild`, or you'll test the old one.
+  (`Sandboxfile`) — rebuild the image and `sbx rebuild` (or just `./rebuild-image.ps1`),
+  or you'll test the old one.
 
 Now say: "I've reviewed the project memory."
