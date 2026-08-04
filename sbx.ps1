@@ -217,6 +217,10 @@ function Invoke-Sbx {
         'status'  { return Invoke-SbxStatus -Runtime $runtime }
         'scratch' {
             $name    = Get-SbxContainerName -Path $null
+            # Scratch shares the auth volume but runs claude directly (no anchor
+            # to exec-seed). Seed the volume first so a scratch-first-ever run
+            # still commits with an identity; a no-op once anything has seeded it.
+            Set-SbxVolumeGitIdentity -Runtime $runtime
             $runArgs = Build-SbxScratchArgs -Name $name
             $window  = Resolve-SbxWindow -OnWindows:$IsWindows -Requested $o.Window
             switch ($window) {
@@ -689,23 +693,47 @@ function Get-SbxHostGitIdentity {
     return [pscustomobject]@{ Name = $name; Email = $email }
 }
 
+# The guard-then-seed script, shared by the exec path (sbx-main, an existing
+# container) and the run path (scratch, a one-shot container). `git config`
+# writes to GIT_CONFIG_GLOBAL, which the image points into the auth volume, so a
+# seed outlives every rebuild. The guard requires BOTH fields present AND
+# non-empty (`git config --get` exits 0 on a present-but-blank key), so an
+# incomplete identity is reseeded rather than skipped. Values ride as positional
+# args after `--` ($1/$2), never interpolated - a name with a quote or newline
+# cannot become a second config key.
+# Assigned as ONE string, NOT a '...' + '...' literal inside an @(): a trailing +
+# inside an array literal is unary plus on the NEXT element, not concatenation,
+# so that spelling silently ships two argv elements and the identity never gets
+# set (caught by tests/Main.Tests.ps1; docs/FINDINGS.md).
+$script:SbxGitSeedScript =
+    '[ -n "$(git config --global --get user.name  2>/dev/null)" ] && ' +
+    '[ -n "$(git config --global --get user.email 2>/dev/null)" ] && exit 0; ' +
+    'git config --global user.name "$1" && git config --global user.email "$2"'
+
 function Build-SbxGitIdentityArgs {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$UserName,
           [Parameter(Mandatory)][string]$Email,
           [string]$Name = 'sbx-main')
-    # `git config` writes to GIT_CONFIG_GLOBAL, which the image points into the
-    # auth volume - so this seeds once and outlives every rebuild. Values ride as
-    # separate argv elements through exec (no shell), so a name with spaces or
-    # quotes needs no escaping and can't break out into a second config key.
-    # Built as one variable, NOT a '...' + '...' literal inside the @(): a trailing
-    # + inside an array literal is unary plus on the NEXT element, not string
-    # concatenation, so that spelling silently ships two argv elements and the
-    # identity never gets set (caught by tests/Main.Tests.ps1; docs/FINDINGS.md).
-    $script = '[ -n "$(git config --global --get user.name  2>/dev/null)" ] && ' +
-              '[ -n "$(git config --global --get user.email 2>/dev/null)" ] && exit 0; ' +
-              'git config --global user.name "$1" && git config --global user.email "$2"'
-    return @('exec',$Name,'bash','-c',$script,'--',$UserName,$Email)
+    # exec the seed inside an already-running container (the sbx-main anchor).
+    return @('exec',$Name,'bash','-c',$script:SbxGitSeedScript,'--',$UserName,$Email)
+}
+
+function Build-SbxGitIdentityVolumeArgs {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$UserName,
+          [Parameter(Mandatory)][string]$Email,
+          [string]$Image = 'sbx:latest',
+          [string]$AuthVolume = 'sbx-claude-auth')
+    # One-shot `run --rm` that mounts ONLY the auth volume and seeds its
+    # .gitconfig - for creation paths with no persistent container to exec into
+    # (sbx scratch runs claude as PID 1 under --rm). The image ENV
+    # GIT_CONFIG_GLOBAL points into the mount, so the identity lands in the shared
+    # volume every later container inherits. The image ENTRYPOINT is a no-op here
+    # (no .ssh-ro/.gh-ro mounted) and just execs the seed. Same guard/seed script
+    # as the exec path.
+    return @('run','--rm','-v',"${AuthVolume}:/home/agent/.claude",$Image,
+             'bash','-c',$script:SbxGitSeedScript,'--',$UserName,$Email)
 }
 
 function Set-SbxContainerGitIdentity {
@@ -729,6 +757,30 @@ function Set-SbxContainerGitIdentity {
         if ($attempt -lt 3) { Start-Sleep -Milliseconds 300 }
     }
     Write-Warning "sbx: could not seed the container git identity: $($out -join ' ')"
+}
+
+function Set-SbxVolumeGitIdentity {
+    [CmdletBinding()]
+    param([string]$Runtime = (Resolve-SbxRuntime),
+          [string]$Image = 'sbx:latest',
+          [string]$AuthVolume = 'sbx-claude-auth',
+          [object]$Identity = (Get-SbxHostGitIdentity))
+    # Seed the shared auth volume before a container that can't be exec-seeded:
+    # sbx scratch runs claude as PID 1 under --rm, so there's no anchor to exec
+    # into the way sbx-main has. Mounting the volume into a one-shot and seeding
+    # it there means the FIRST-ever scratch (before any sbx-main) still gets an
+    # identity. Idempotent - the guard skips when the volume already carries a
+    # complete identity, so this is a fast no-op once anything has seeded it.
+    # Best-effort and non-fatal, same posture as the exec path.
+    if (-not $Identity) {
+        Write-Warning "sbx: no git identity on this host (git config user.name/user.email) - scratch commits will need one; set SBX_GIT_USER_NAME/EMAIL to override"
+        return
+    }
+    $a = Build-SbxGitIdentityVolumeArgs -UserName $Identity.Name -Email $Identity.Email -Image $Image -AuthVolume $AuthVolume
+    $out = & $Runtime @a 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "sbx: could not seed the auth-volume git identity: $($out -join ' ')"
+    }
 }
 
 function Start-SbxMain {
