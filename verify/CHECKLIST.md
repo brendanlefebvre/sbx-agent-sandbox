@@ -15,7 +15,11 @@ Run on Windows (wslc) unless marked; re-run the mirrored items on macOS.
 4. **rm:** `sbx rm <name>` → repo back at origin as a REAL dir, link gone,
    tmux session gone, `sbx ls` no longer lists it.
 5. **rebuild:** `sbx rebuild` → container replaced; workspace intact; step-3
-   histories still resumable; login still valid (no re-auth).
+   histories still resumable; login still valid (no re-auth). Git identity
+   survives: `git config --global --get user.name`/`user.email` inside the new
+   container still return the host identity (it lives in the auth volume via
+   `GIT_CONFIG_GLOBAL`, not the container layer), and a hand-set identity is not
+   re-clobbered by the seed.
 6. **Blast radius:** in the hub: `ls /home/agent/.ssh` absent; `/work` shows
    only added projects; no `C:` anywhere.
 7. **sync:** `sbx sync <name> fetch` (NAS-remoted repo) succeeds host-side;
@@ -25,6 +29,11 @@ Run on Windows (wslc) unless marked; re-run the mirrored items on macOS.
    EMPTY `/resume` menu (per-run `<container>-proj` volume isolates it from hub
    and prior-scratch history — both key on cwd `/work`), and no
    `sbx-scratch-*-proj` volume lingers in `wslc volume list` after exit.
+   **Identity (first-container case):** even with NO `sbx-main` yet, a `git
+   commit` inside a scratch container attributes to the host identity, not
+   "Author identity unknown" — `sbx scratch` seeds the shared `sbx-claude-auth`
+   volume (one-shot `run --rm`) before launching the throwaway, so the identity
+   is present the first time too. (Verify with a throwaway `git init` in `/tmp`.)
 9. **Concurrency:** `sbx foo --new-window` + `sbx --new-window` (hub) windows open
    simultaneously; hub edits a file in `/work/foo`, project session sees it instantly.
 10. **wslc 15-mount ceiling re-check (2.9.4.0):** after the runs above, note
