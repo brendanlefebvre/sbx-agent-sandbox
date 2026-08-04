@@ -1,24 +1,24 @@
 #!/usr/bin/env pwsh
-# probe-host.ps1 — host-side harness for the "c-heavy" autonomous-sync probes
+# probe-host.ps1 - host-side harness for the "c-heavy" autonomous-sync probes
 # (ROADMAP item 1). Answers the three flagged unknowns end-to-end WITHOUT
 # building the real feature:
 #
-#   1. reachability  — can a sandbox container open TCP to an sshd on THIS host?
-#   2. forced cmd    — does `restrict,command="sbx-sync-exec"` fire and reject
+#   1. reachability  - can a sandbox container open TCP to an sshd on THIS host?
+#   2. forced cmd    - does `restrict,command="sbx-sync-exec"` fire and reject
 #                      everything outside {push,pull,fetch} on a workspace repo?
-#   3. (surface)     — reports where the authorized_keys line had to go (per-user
+#   3. (surface)     - reports where the authorized_keys line had to go (per-user
 #                      vs Win32-OpenSSH administrators_authorized_keys).
 #
 # It stands up ONLY throwaway artifacts (a temp dir, an ed25519 keypair, a bare
 # git remote + working repo, one tagged authorized_keys line) and removes them
 # all in `finally`. It NEVER reads or modifies your real ~/.ssh keys.
 #
-# PREREQUISITES you must set up first (they need admin and are OS-specific — see
+# PREREQUISITES you must set up first (they need admin and are OS-specific - see
 # docs/probes/c-heavy-sync-probes.md): a host sshd must already be listening
 # (Win32-OpenSSH / macOS Remote Login), and `pwsh` + `git` on PATH. This harness
 # does NOT install or start sshd.
 #
-# Cannot be validated from the Linux dev sandbox — expect to iterate on your
+# Cannot be validated from the Linux dev sandbox - expect to iterate on your
 # host. The runbook is the authoritative guide; this automates the mechanical
 # parts and prints a PASS/FAIL table.
 
@@ -43,14 +43,14 @@ $TAG      = 'sbx-cheavy-probe'
 # The SHIPPED validator, not a copy: c-heavy is built now (ROADMAP 1 closed), so
 # re-running this harness on a new host must exercise the real forced command.
 $ExecPath = (Resolve-Path "$PSScriptRoot/../sbx-sync-exec.ps1").Path
-# How the forced command invokes pwsh — the shipped rule (Windows: bare `pwsh`
+# How the forced command invokes pwsh - the shipped rule (Windows: bare `pwsh`
 # off sshd's PATH; macOS: the Homebrew bin WRAPPER, not the Cellar apphost).
 $PwshInvoke = Get-SbxPwshCommand
 $results  = [System.Collections.Generic.List[object]]::new()
 function Add-Result { param($Probe, $Pass, $Detail)
     $results.Add([pscustomobject]@{ Probe = $Probe; Result = $(if ($Pass) {'PASS'} else {'FAIL'}); Detail = $Detail })
     $c = if ($Pass) { 'Green' } else { 'Red' }
-    Write-Host ("  [{0}] {1} — {2}" -f $results[-1].Result, $Probe, $Detail) -ForegroundColor $c
+    Write-Host ("  [{0}] {1} - {2}" -f $results[-1].Result, $Probe, $Detail) -ForegroundColor $c
 }
 
 function Test-InAdministrators {
@@ -65,7 +65,7 @@ function Get-AuthorizedKeysTarget {
     # Decided by the SHIPPED resolver, so the probe qualifies the file the
     # launcher will actually write. Win32-OpenSSH reads
     # C:\ProgramData\ssh\administrators_authorized_keys instead of the per-user
-    # file for members of local Administrators — but only where that file EXISTS,
+    # file for members of local Administrators - but only where that file EXISTS,
     # and sbx never creates it: creating it takes precedence for every admin on
     # the host from then on and can lock out logins that relied on
     # ~/.ssh/authorized_keys (see Get-SbxAuthorizedKeysPath, and P7, where this
@@ -84,7 +84,7 @@ function Get-AuthorizedKeysTarget {
         # MEMBERSHIP, not elevation, is what sshd keys off. Warn rather than act:
         # if this host's sshd_config carries the stock `Match Group administrators`
         # block, an admin account's per-user file is ignored and auth will fail
-        # below — with a fix the operator must choose, not one we impose.
+        # below - with a fix the operator must choose, not one we impose.
         if (-not $admin -and (Test-InAdministrators)) {
             Write-Host "  NOTE: this account is in local Administrators and $($env:ProgramData)\ssh\administrators_authorized_keys does not exist." -ForegroundColor Yellow
             Write-Host "        Using the per-user file (what sbx would use). If auth fails with 'Permission denied (publickey)'," -ForegroundColor Yellow
@@ -98,7 +98,7 @@ function Get-AuthorizedKeysTarget {
 function New-ProbeArtifacts {
     # Temp keypair + a local bare remote + a working repo placed as 'myrepo' in a
     # throwaway workspace, so push/pull/fetch have a real (host-local) target. The
-    # git op runs host-side (that's the whole point) — no network for git itself.
+    # git op runs host-side (that's the whole point) - no network for git itself.
     $root = Join-Path ([IO.Path]::GetTempPath()) "$TAG-$PID"
     $ws   = Join-Path $root 'ws'
     $key  = Join-Path $root 'id_ed25519'
@@ -123,7 +123,7 @@ function Install-AuthorizedKey {
     # pinned to the validator with the throwaway workspace baked in, so the probe
     # can never touch your real ~/sbx-ws.
     # Built by the SHIPPED line builder, so the probe validates the exact format
-    # `sbx sync-setup` installs — only the comment tag differs, keeping the
+    # `sbx sync-setup` installs - only the comment tag differs, keeping the
     # throwaway line distinguishable from a real one.
     $line = Build-SbxAuthorizedKeysLine -PublicKey (Get-Content -Raw $Art.Pub) `
                                         -ExecPath $ExecPath -WorkspaceDir $Art.Ws `
@@ -131,7 +131,7 @@ function Install-AuthorizedKey {
     $dir = Split-Path -Parent $Target.Path
     if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force $dir | Out-Null }
     # Newline safety: if the file doesn't end in a newline, Add-Content would
-    # MERGE our entry onto the last existing line — the prior key stays valid with
+    # MERGE our entry onto the last existing line - the prior key stays valid with
     # a longer comment, ours vanishes → "Permission denied (publickey)". Add a
     # separating newline first when needed.
     if ((Test-Path -LiteralPath $Target.Path) -and
@@ -146,7 +146,7 @@ function Install-AuthorizedKey {
 function Test-AdminKeyFileAcl {
     # CHECK, never change. sshd silently ignores administrators_authorized_keys
     # unless only Administrators + SYSTEM can write it, so a wrong ACL would make
-    # the probe fail for a reason unrelated to what it tests — but the file
+    # the probe fail for a reason unrelated to what it tests - but the file
     # belongs to the host, and the probe restores contents only. Rewriting the ACL
     # (the old `icacls /inheritance:r`) left the host permanently altered after a
     # successful, "clean" run.
@@ -163,13 +163,13 @@ function Test-AdminKeyFileAcl {
         }
     }
     catch {
-        Write-Host "  WARN: could not read the ACL on $Path — if auth fails, check it by hand." -ForegroundColor Yellow
+        Write-Host "  WARN: could not read the ACL on $Path - if auth fails, check it by hand." -ForegroundColor Yellow
         return
     }
     if ($writers) {
         Write-Host "  WARN: $Path is writable by $(($writers | Select-Object -Unique) -join ', ')." -ForegroundColor Yellow
         Write-Host "        sshd ignores this file unless only Administrators and SYSTEM can write it, so auth will likely fail." -ForegroundColor Yellow
-        Write-Host "        Apply the runbook icacls recipe by hand — the probe will not change ACLs on your host." -ForegroundColor Yellow
+        Write-Host "        Apply the runbook icacls recipe by hand - the probe will not change ACLs on your host." -ForegroundColor Yellow
     } else {
         Write-Host "  admin key file ACL looks correct (Administrators + SYSTEM only)" -ForegroundColor DarkGray
     }
@@ -178,7 +178,7 @@ function Test-AdminKeyFileAcl {
 function Backup-AuthorizedKeys {
     # Snapshot the file EXACTLY (content, or the fact that it didn't exist) so
     # teardown can restore it verbatim. Never do line-surgery on a file that may
-    # hold the user's real keys — that risked wiping them.
+    # hold the user's real keys - that risked wiping them.
     param([Parameter(Mandatory)]$Target)
     if (Test-Path -LiteralPath $Target.Path) {
         # Also drop a physical .bak next to it, so a HARD kill that skips `finally`
@@ -218,7 +218,7 @@ function Get-CandidateHostAddresses {
             if ($f.Count -ge 3 -and $f[1] -eq '00000000' -and $f[2] -match '^[0-9A-Fa-f]{8}$') {
                 $g = $f[2]
                 $octets = for ($i = 6; $i -ge 0; $i -= 2) { [Convert]::ToInt32($g.Substring($i, 2), 16) }
-                # Skip 0.x (invalid) and multicast/reserved (>=224) — malformed or
+                # Skip 0.x (invalid) and multicast/reserved (>=224) - malformed or
                 # non-default route rows can yield garbage like 0.250.250.200.
                 if ($octets[0] -ne 0 -and $octets[0] -lt 224) { $cands.Add($octets -join '.') }
             }
@@ -293,7 +293,7 @@ function Show-SshdAuthLog {
             Write-Host "  --- recent sshd log (OpenSSH/Operational) ---" -ForegroundColor DarkGray
             foreach ($e in $ev) { Write-Host "    $($e.TimeCreated.ToString('HH:mm:ss')) $(($e.Message -split "`n")[0])" -ForegroundColor DarkGray }
         } else {
-            Write-Host "  (no matching OpenSSH/Operational events — the log may be disabled; set 'SyslogFacility LOCAL0'/'LogLevel VERBOSE' in sshd_config)" -ForegroundColor DarkGray
+            Write-Host "  (no matching OpenSSH/Operational events - the log may be disabled; set 'SyslogFacility LOCAL0'/'LogLevel VERBOSE' in sshd_config)" -ForegroundColor DarkGray
         }
     } catch {
         Write-Host "  (couldn't read OpenSSH/Operational log: $($_.Exception.Message))" -ForegroundColor DarkGray
@@ -301,7 +301,7 @@ function Show-SshdAuthLog {
 }
 
 # ---- run ----------------------------------------------------------------------
-Write-Host "sbx c-heavy sync probe — runtime=$Runtime user=$SshUser port=$Port" -ForegroundColor Cyan
+Write-Host "sbx c-heavy sync probe - runtime=$Runtime user=$SshUser port=$Port" -ForegroundColor Cyan
 Write-Host "If interrupted, undo by hand: delete lines tagged '$TAG' from your authorized_keys and remove the temp dir under $([IO.Path]::GetTempPath())." -ForegroundColor DarkGray
 
 $target = Get-AuthorizedKeysTarget
@@ -309,13 +309,13 @@ Write-Host "  authorized_keys target: $($target.Path)$(if ($target.Admin) { ' (W
 # Elevation gate: only the admin-file path needs it (writing under ProgramData\ssh
 # + setting its ACL). The per-user file and any -AuthorizedKeysFile override don't.
 if ($target.Admin -and -not $target.Elevated) {
-    throw "This account is a local Administrator, so sshd reads administrators_authorized_keys — re-run pwsh elevated, or if you disabled that Match block in sshd_config pass -AuthorizedKeysFile `"$HOME\.ssh\authorized_keys`"."
+    throw "This account is a local Administrator, so sshd reads administrators_authorized_keys - re-run pwsh elevated, or if you disabled that Match block in sshd_config pass -AuthorizedKeysFile `"$HOME\.ssh\authorized_keys`"."
 }
 
 # sshd sanity BEFORE we blame reachability.
 if ($IsWindows) {
     $svc = Get-Service sshd -ErrorAction SilentlyContinue
-    if (-not $svc)                       { Write-Host "  WARN: no 'sshd' service — install Win32-OpenSSH (runbook)" -ForegroundColor Yellow }
+    if (-not $svc)                       { Write-Host "  WARN: no 'sshd' service - install Win32-OpenSSH (runbook)" -ForegroundColor Yellow }
     elseif ($svc.Status -ne 'Running')   { Write-Host "  WARN: sshd service is $($svc.Status), not Running" -ForegroundColor Yellow }
     else                                 { Write-Host "  sshd service: Running" -ForegroundColor DarkGray }
 }
@@ -325,7 +325,7 @@ elseif ($IsMacOS) {
     Write-Host "  forced command will invoke: $PwshInvoke" -ForegroundColor DarkGray
 }
 if (Test-LocalPort -Port $Port) { Write-Host "  sshd is listening on 127.0.0.1:$Port (host-local)" -ForegroundColor DarkGray }
-else { Write-Host "  WARN: nothing answering on 127.0.0.1:$Port — start sshd before expecting reachability" -ForegroundColor Yellow }
+else { Write-Host "  WARN: nothing answering on 127.0.0.1:$Port - start sshd before expecting reachability" -ForegroundColor Yellow }
 
 $akBackup = Backup-AuthorizedKeys -Target $target   # snapshot BEFORE any write
 $art = $null
@@ -333,9 +333,9 @@ try {
     $art = New-ProbeArtifacts
     Install-AuthorizedKey -Art $art -Target $target
 
-    # Probe 1 — reachability: did the container reach the host sshd at all?
+    # Probe 1 - reachability: did the container reach the host sshd at all?
     # Reachability = the absence of a CONNECTION-level failure. Anything past that
-    # (auth denial, or the forced command running — even erroring) proves we got
+    # (auth denial, or the forced command running - even erroring) proves we got
     # to sshd. Only these mean "no route":
     $connFail = 'connect to host|Could not resolve hostname|Connection refused|Connection timed out|Operation timed out|No route to host|Network is unreachable'
     $reachable = $null; $reachOut = $null
@@ -351,25 +351,25 @@ try {
     }
     Add-Result 'reachability' $true "container reached host sshd at $reachable"
 
-    # Probe 2 — auth + forced command, with the three reached-states distinguished:
+    # Probe 2 - auth + forced command, with the three reached-states distinguished:
     if ($reachOut -match 'Permission denied') {
-        # Reached sshd, KEY rejected — wrong authorized_keys file/ACL/format.
+        # Reached sshd, KEY rejected - wrong authorized_keys file/ACL/format.
         Add-Result 'auth/forced-command' $false "reached sshd but the key was rejected (authorized_keys file/ACL/format): $(Get-LastLine $reachOut)"
         Show-SshdAuthLog
         return
     }
     if ($reachOut -notmatch 'sbx-sync-exec: (RUN|OK|REJECT)') {
         # Key ACCEPTED (no denial) but the forced command didn't run the validator
-        # — almost always the host can't launch pwsh in sshd's minimal env.
+        # - almost always the host can't launch pwsh in sshd's minimal env.
         Add-Result 'auth/forced-command' $false "key accepted, but the forced command didn't run the validator (host pwsh/PATH?): $(Get-LastLine $reachOut)"
         Show-SshdAuthLog
         return
     }
     Add-Result 'auth/forced-command' $true 'dedicated key accepted; forced command fired'
 
-    # Probe 2 — forced command: positives run the op, negatives are refused.
+    # Probe 2 - forced command: positives run the op, negatives are refused.
     # Assert the OUTCOME, not just that a line was printed. `OK` is emitted only
-    # after git succeeds (see sbx-sync-exec.ps1), and exit 0 comes with it — an
+    # after git succeeds (see sbx-sync-exec.ps1), and exit 0 comes with it - an
     # earlier version matched `OK` alone, which the pre-git `OK` made unfalsifiable.
     foreach ($op in @('push','pull','fetch')) {
         $r = Invoke-ContainerSsh -Addr $reachable -RemoteCmd "myrepo $op" -Art $art
@@ -387,7 +387,7 @@ try {
         $r = Invoke-ContainerSsh -Addr $reachable -RemoteCmd $d.c -Art $art
         # Refused == the validator SAID SO. The old `-or (no OK)` arm passed on any
         # unrelated ssh failure, which would score a broken probe run as a clean
-        # sweep of denials — exactly backwards for a qualification harness.
+        # sweep of denials - exactly backwards for a qualification harness.
         $refused = ($r.Output -match 'sbx-sync-exec: REJECT') -and
                    ($r.Output -notmatch 'sbx-sync-exec: (RUN|OK)')
         Add-Result $d.n $refused "exit $($r.Exit): $(Get-LastLine $r.Output)"
@@ -397,7 +397,7 @@ try {
     # Tested with -R, not -L, because only -R is refusable at request time: a
     # remote forward needs a server-side tcpip-forward request, which `restrict`
     # denies outright and ssh reports. A -L forward is a purely client-side
-    # listener until something connects through it, so a bare -L can't fail —
+    # listener until something connects through it, so a bare -L can't fail -
     # the previous check passed unconditionally, and worse, wrote the flag inside
     # the quoted remote command where ssh never saw it as an option at all.
     # `restrict` implies no-port-forwarding, which covers both directions.

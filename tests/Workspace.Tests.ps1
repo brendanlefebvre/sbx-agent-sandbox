@@ -58,7 +58,7 @@ Describe 'Add-SbxProject / Remove-SbxProject' {
         $script:man = Join-Path $TestDrive 'origins.json'
         # $TestDrive is shared across It blocks in this Describe (Pester does not
         # recreate it per-test), and `New-Item -Force` is a no-op on an existing
-        # junction/symlink rather than replacing it — so a prior test's junction-back
+        # junction/symlink rather than replacing it - so a prior test's junction-back
         # would otherwise leak into the next test. Reset explicitly; never -Recurse a
         # link (see Remove-SbxProject's own comment on that gotcha).
         foreach ($p in @($script:src, $script:ws)) {
@@ -113,8 +113,8 @@ Describe 'Add-SbxProject / Remove-SbxProject' {
             Should -Throw '*no project*'
     }
     # Windows-only: FileShare.None is enforced by the OS there and blocks the
-    # directory move. On Unix an open handle does NOT block rename(2) — the fd
-    # follows the inode and Add-SbxProject legitimately succeeds — so the same
+    # directory move. On Unix an open handle does NOT block rename(2) - the fd
+    # follows the inode and Add-SbxProject legitimately succeeds - so the same
     # invariant gets a Unix-native provocation in the companion test below.
     It 'add throws (does not silently succeed) when a locked file blocks the move, and never writes the manifest entry' -Skip:(-not $IsWindows) {
         $lockedPath = Join-Path $script:src 'FILE.txt'
@@ -125,7 +125,7 @@ Describe 'Add-SbxProject / Remove-SbxProject' {
         finally {
             $fs.Dispose()
         }
-        # Move-Item on a directory with a locked file may PARTIALLY move on Windows —
+        # Move-Item on a directory with a locked file may PARTIALLY move on Windows -
         # -ErrorAction Stop makes the failure LOUD, not atomic/rolled-back. We assert
         # only the two invariants the fix actually guarantees: it throws, and the
         # manifest is never written (so `sbx ls` can't claim a project that isn't

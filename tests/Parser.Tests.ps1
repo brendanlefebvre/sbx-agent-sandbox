@@ -67,7 +67,7 @@ Describe 'ConvertFrom-SbxArgs (v2)' {
     }
 }
 
-Describe 'ConvertFrom-SbxArgs — sync-setup (c-heavy)' {
+Describe 'ConvertFrom-SbxArgs - sync-setup (c-heavy)' {
     It 'parses the bare subcommand' {
         (ConvertFrom-SbxArgs @('sync-setup')).Command | Should -Be 'sync-setup'
     }
@@ -107,7 +107,7 @@ Describe 'ConvertFrom-SbxArgs — sync-setup (c-heavy)' {
     }
 }
 
-Describe 'ConvertFrom-SbxArgs — gh-setup (c-gh)' {
+Describe 'ConvertFrom-SbxArgs - gh-setup (c-gh)' {
     It 'parses the bare subcommand' {
         (ConvertFrom-SbxArgs @('gh-setup')).Command | Should -Be 'gh-setup'
     }
