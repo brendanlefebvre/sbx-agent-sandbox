@@ -62,11 +62,13 @@ Describe 'Build-SbxGitIdentityArgs' {
         $a[4] | Should -BeLike '*git config --global user.name "$1"*'
         $a[4] | Should -BeLike '*git config --global user.email "$2"*'
     }
-    It 'no-ops when the container already has an identity' {
+    It 'no-ops only when the container already has BOTH identity fields' {
         $a = Build-SbxGitIdentityArgs -UserName 'x' -Email 'y@z'
         # The guard runs first and short-circuits, so re-running create/rebuild
-        # never clobbers an identity set by hand inside the container.
-        $a[4] | Should -BeLike 'git config --global --get user.email >/dev/null 2>&1 && exit 0;*'
+        # never clobbers an identity set by hand inside the container. It must
+        # require BOTH fields — an email-only config is incomplete and has to be
+        # re-seeded, so the guard checks user.name AND user.email before exit 0.
+        $a[4] | Should -BeLike '*git config --global --get user.name*&&*git config --global --get user.email*&& exit 0;*'
     }
     It 'targets a named container' {
         (Build-SbxGitIdentityArgs -UserName 'a' -Email 'b@c' -Name 'sbx-other')[1] |
@@ -88,6 +90,18 @@ Describe 'Get-SbxHostGitIdentity' {
         $env:SBX_GIT_USER_EMAIL = ''
         Mock -CommandName git -MockWith { }      # host config reads as empty
         Get-SbxHostGitIdentity | Should -BeNullOrEmpty
+    }
+    It 'reads host-level git config via Get-SbxHostGitConfig, never repo-local' {
+        # Delegating to Get-SbxHostGitConfig (global/system scope only) is what
+        # stops `sbx rebuild` run inside a repo from seeding that repo's local
+        # user.email into the shared sandbox identity.
+        Mock -CommandName Get-SbxHostGitConfig -MockWith {
+            if ($Key -eq 'user.name') { 'Host Name' } else { 'host@example.com' }
+        }
+        $id = Get-SbxHostGitIdentity
+        $id.Name  | Should -Be 'Host Name'
+        $id.Email | Should -Be 'host@example.com'
+        Should -Invoke Get-SbxHostGitConfig -Times 2 -Exactly
     }
 }
 

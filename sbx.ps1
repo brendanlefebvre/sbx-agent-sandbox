@@ -673,10 +673,14 @@ function Get-SbxHostGitIdentity {
     # The host's own git identity is the default source of truth — the sandbox
     # commits as the human who owns the machine. SBX_GIT_USER_* overrides it for
     # anyone who wants sandbox commits attributed differently.
+    # Read HOST-level scope only (global/system) via Get-SbxHostGitConfig, never
+    # bare `git config --get`: the latter merges repo-local, so `sbx rebuild` run
+    # from inside a repo with a work-specific user.email would seed THAT into the
+    # shared auth volume. Same defense the sync-hardening path already relies on.
     $name  = if ($env:SBX_GIT_USER_NAME)  { $env:SBX_GIT_USER_NAME }
-             else { (& git config --get user.name  2>$null | Select-Object -First 1) }
+             else { Get-SbxHostGitConfig -Key 'user.name' }
     $email = if ($env:SBX_GIT_USER_EMAIL) { $env:SBX_GIT_USER_EMAIL }
-             else { (& git config --get user.email 2>$null | Select-Object -First 1) }
+             else { Get-SbxHostGitConfig -Key 'user.email' }
     if (-not $name -or -not $email) { return $null }
     return [pscustomobject]@{ Name = "$name".Trim(); Email = "$email".Trim() }
 }
@@ -694,7 +698,8 @@ function Build-SbxGitIdentityArgs {
     # + inside an array literal is unary plus on the NEXT element, not string
     # concatenation, so that spelling silently ships two argv elements and the
     # identity never gets set (caught by tests/Main.Tests.ps1; docs/FINDINGS.md).
-    $script = 'git config --global --get user.email >/dev/null 2>&1 && exit 0; ' +
+    $script = 'git config --global --get user.name  >/dev/null 2>&1 && ' +
+              'git config --global --get user.email >/dev/null 2>&1 && exit 0; ' +
               'git config --global user.name "$1" && git config --global user.email "$2"'
     return @('exec',$Name,'bash','-c',$script,'--',$UserName,$Email)
 }
