@@ -5,9 +5,20 @@ BeforeAll {
     # Runs the real client under a POSIX shell with the conf/key/PATH it would see
     # in the container. Returns exit code plus both streams, so a test can assert
     # on the message an agent would actually read.
+    # Writes a stand-in for a real binary onto the fake PATH dir. The exec bit is
+    # the whole point: WriteAllText alone leaves it 0644, and a POSIX PATH lookup
+    # SKIPS a non-executable file - so the test would silently shell out to the
+    # host's real ssh/gh instead of the fake. On Windows this never bit, because
+    # MSYS sh treats files on NTFS as executable regardless.
+    function New-FakeExe {
+        param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$Body)
+        [IO.File]::WriteAllText($Path, $Body)
+        if (-not $IsWindows) { & chmod +x $Path }
+    }
+
     function Invoke-Client {
         param([string[]]$ClientArgs = @(), [string]$Conf, [string]$Key,
-              [string]$Cwd, [string]$FakeSshDir)
+              [string]$FakeSshDir)
         $env:SBX_SYNC_CONF = $Conf
         $env:SBX_SYNC_KEY  = $Key
         $old = $env:PATH
@@ -40,8 +51,8 @@ Describe 'sbx-sync-client.sh' -Skip:(-not (Get-Command sh -ErrorAction SilentlyC
         $script:fake = Join-Path $script:tmp 'bin'
         New-Item -ItemType Directory -Force $script:fake | Out-Null
         $script:argvLog = Join-Path $script:tmp 'argv.txt'
-        [IO.File]::WriteAllText((Join-Path $script:fake 'ssh'),
-            "#!/bin/sh`nfor a in `"`$@`"; do echo `"`$a`"; done > '$($script:argvLog -replace '\\','/')'`nexit 0`n")
+        New-FakeExe -Path (Join-Path $script:fake 'ssh') -Body `
+            "#!/bin/sh`nfor a in `"`$@`"; do echo `"`$a`"; done > '$($script:argvLog -replace '\\','/')'`nexit 0`n"
     }
 
     It 'is valid POSIX shell (the syntax gate the printf form never had)' {
@@ -81,6 +92,36 @@ Describe 'sbx-sync-client.sh' -Skip:(-not (Get-Command sh -ErrorAction SilentlyC
         $r = Invoke-Client -ClientArgs @('sync', 'a', 'b', 'c') -Conf $script:conf -Key $script:key
         $r.Exit | Should -Be 2
         $r.Out  | Should -BeLike '*usage: sbx sync*'
+    }
+
+    It 'rejects a sync.conf field that ssh would misread' -ForEach @(
+        # A CRLF-terminated conf is the realistic case - the host that writes it
+        # is often Windows - and the leading-dash ones are why the check exists
+        # at all: ssh reads "-oProxyCommand=..." as an option, not a hostname.
+        @{ Field = 'host'; Body = "host=10.0.0.1`r`nuser=me`nport=2222`n" }
+        @{ Field = 'host'; Body = "host=-oProxyCommand=x`nuser=me`nport=2222`n" }
+        @{ Field = 'host'; Body = "host=10.0.0.1 x`nuser=me`nport=2222`n" }
+        @{ Field = 'user'; Body = "host=10.0.0.1`nuser=me you`nport=2222`n" }
+        @{ Field = 'port'; Body = "host=10.0.0.1`nuser=me`nport=22x`n" }
+    ) {
+        $bad = Join-Path $script:tmp 'bad.conf'
+        [IO.File]::WriteAllText($bad, $Body)
+        $r = Invoke-Client -ClientArgs @('sync', 'myrepo', 'push') -Conf $bad `
+                           -Key $script:key -FakeSshDir $script:fake
+        $r.Exit | Should -Be 2
+        $r.Out  | Should -BeLike "*bad $Field=*"
+        # The guard must fire BEFORE ssh runs, not after it fails.
+        Test-Path $script:argvLog | Should -BeFalse
+    }
+
+    It 'accepts a hostname, an IPv6 literal, and the default port' {
+        $ok = Join-Path $script:tmp 'ok.conf'
+        [IO.File]::WriteAllText($ok, "host=fe80::1`nuser=my-user_1`n")
+        Invoke-Client -ClientArgs @('sync', 'myrepo', 'push') -Conf $ok `
+                      -Key $script:key -FakeSshDir $script:fake | Out-Null
+        $argv = @(Get-Content $script:argvLog)
+        $argv | Should -Contain 'my-user_1@fe80::1'
+        $argv | Should -Contain '22'       # port= absent falls back to 22
     }
 
     It 'offers ONLY the sync key - no agent, no other identity' {
@@ -128,12 +169,12 @@ Describe 'sbx pr check' -Skip:(-not (Get-Command sh -ErrorAction SilentlyContinu
         # Matches on "$*" with wildcards rather than positional $1/$2: --paginate
         # shifts the resource-path argument's position, and matching the whole
         # argv string is resilient to that instead of hardcoding where it lands.
-        [IO.File]::WriteAllText((Join-Path $script:fake 'gh'),
-            "#!/bin/sh`necho `"gh `$*`" >> '$($script:argvLog -replace '\\','/')'`n" +
-            "case `"`$*`" in`n" +
-            "  'pr view --json number -q .number') echo 42 ;;`n" +
-            "  *'pulls/42/comments'*) echo 'FAKE-COMMENT-1' ;;`n" +
-            "esac`nexit 0`n")
+        New-FakeExe -Path (Join-Path $script:fake 'gh') -Body `
+            ("#!/bin/sh`necho `"gh `$*`" >> '$($script:argvLog -replace '\\','/')'`n" +
+             "case `"`$*`" in`n" +
+             "  'pr view --json number -q .number') echo 42 ;;`n" +
+             "  *'pulls/42/comments'*) echo 'FAKE-COMMENT-1' ;;`n" +
+             "esac`nexit 0`n")
     }
 
     It 'lists coderabbit comments without pushing' {
