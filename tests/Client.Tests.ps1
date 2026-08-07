@@ -10,7 +10,14 @@ BeforeAll {
     function New-FakeExe {
         param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$Body)
         [IO.File]::WriteAllText($Path, $Body)
-        if (-not $IsWindows) { & chmod +x $Path }
+        if (-not $IsWindows) {
+            & chmod +x $Path
+            # Fail loudly rather than leaving a non-executable fake behind: that
+            # is precisely the state that sends the test to the host's real
+            # ssh/gh, which is an unintended outbound call and a 10s hang, not a
+            # clean failure.
+            if ($LASTEXITCODE -ne 0) { throw "chmod +x failed ($LASTEXITCODE) for $Path" }
+        }
     }
 
     # Runs the real client under a POSIX shell with the conf/key it would see in
@@ -53,6 +60,12 @@ Describe 'sbx-sync-client.sh' -Skip:(-not (Get-Command sh -ErrorAction SilentlyC
             @{ Field = 'host'; Body = "host=10.0.0.1 x`nuser=me`nport=2222`n" }
             @{ Field = 'user'; Body = "host=10.0.0.1`nuser=me you`nport=2222`n" }
             @{ Field = 'port'; Body = "host=10.0.0.1`nuser=me`nport=22x`n" }
+            # Digits alone are not enough - ssh rejects both of these boundaries,
+            # and the long one would overflow the shell's arithmetic if the
+            # length test did not come first.
+            @{ Field = 'port'; Body = "host=10.0.0.1`nuser=me`nport=0`n" }
+            @{ Field = 'port'; Body = "host=10.0.0.1`nuser=me`nport=65536`n" }
+            @{ Field = 'port'; Body = "host=10.0.0.1`nuser=me`nport=99999999999999999999`n" }
         )
         # A CRLF-terminated conf is the case that motivated the guard - the host
         # writing sync.conf is often Windows - but it can only be EXERCISED where
@@ -135,11 +148,23 @@ Describe 'sbx-sync-client.sh' -Skip:(-not (Get-Command sh -ErrorAction SilentlyC
         Test-Path $script:argvLog | Should -BeFalse
     }
 
+    It 'accepts the port boundaries it is allowed to' -ForEach @(
+        @{ Port = '1' }, @{ Port = '65535' }
+    ) {
+        $ok = Join-Path $script:tmp 'edge.conf'
+        [IO.File]::WriteAllText($ok, "host=10.0.0.1`nuser=me`nport=$Port`n")
+        $r = Invoke-Client -ClientArgs @('sync', 'myrepo', 'push') -Conf $ok `
+                           -Key $script:key -FakeSsh $script:fakeSsh
+        $r.Exit | Should -Be 0
+        @(Get-Content $script:argvLog) | Should -Contain $Port
+    }
+
     It 'accepts a hostname, an IPv6 literal, and the default port' {
         $ok = Join-Path $script:tmp 'ok.conf'
         [IO.File]::WriteAllText($ok, "host=fe80::1`nuser=my-user_1`n")
-        Invoke-Client -ClientArgs @('sync', 'myrepo', 'push') -Conf $ok `
-                      -Key $script:key -FakeSsh $script:fakeSsh | Out-Null
+        $r = Invoke-Client -ClientArgs @('sync', 'myrepo', 'push') -Conf $ok `
+                      -Key $script:key -FakeSsh $script:fakeSsh
+        $r.Exit | Should -Be 0   # argv is only meaningful if the client succeeded
         $argv = @(Get-Content $script:argvLog)
         $argv | Should -Contain 'my-user_1@fe80::1'
         $argv | Should -Contain '22'       # port= absent falls back to 22
@@ -150,8 +175,9 @@ Describe 'sbx-sync-client.sh' -Skip:(-not (Get-Command sh -ErrorAction SilentlyC
         # APPENDS to the candidate list, so any other key reachable from the
         # container could authenticate instead - landing on a session with no
         # restrict and no forced command, i.e. a shell on the host.
-        Invoke-Client -ClientArgs @('sync', 'myrepo', 'push') -Conf $script:conf `
-                      -Key $script:key -FakeSsh $script:fakeSsh | Out-Null
+        $r = Invoke-Client -ClientArgs @('sync', 'myrepo', 'push') -Conf $script:conf `
+                      -Key $script:key -FakeSsh $script:fakeSsh
+        $r.Exit | Should -Be 0   # argv is only meaningful if the client succeeded
         $argv = @(Get-Content $script:argvLog)
         $argv | Should -Contain 'IdentitiesOnly=yes'
         $argv | Should -Contain 'IdentityAgent=none'
@@ -159,8 +185,9 @@ Describe 'sbx-sync-client.sh' -Skip:(-not (Get-Command sh -ErrorAction SilentlyC
     }
 
     It 'sends the request as ONE fixed two-token remote command' {
-        Invoke-Client -ClientArgs @('sync', 'myrepo', 'push') -Conf $script:conf `
-                      -Key $script:key -FakeSsh $script:fakeSsh | Out-Null
+        $r = Invoke-Client -ClientArgs @('sync', 'myrepo', 'push') -Conf $script:conf `
+                      -Key $script:key -FakeSsh $script:fakeSsh
+        $r.Exit | Should -Be 0   # argv is only meaningful if the client succeeded
         $argv = @(Get-Content $script:argvLog)
         $argv[-1] | Should -Be 'myrepo push'      # one argv element, not two
         $argv     | Should -Contain 'me@10.0.0.1'
