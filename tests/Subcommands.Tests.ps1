@@ -37,7 +37,7 @@ Describe 'Get-SbxList surfaces runtime failures' -Skip:(-not $IsWindows) {
     It 'does not warn when the runtime call succeeds' {
         Mock -CommandName wslc -MockWith { $global:LASTEXITCODE = 0; '[]' }
         $warnings = @()
-        $r = Get-SbxList -WarningAction SilentlyContinue -WarningVariable warnings
+        $null = Get-SbxList -WarningAction SilentlyContinue -WarningVariable warnings
         $warnings.Count | Should -Be 0
     }
 }
@@ -75,7 +75,7 @@ Describe 'Get-SbxList surfaces runtime failures (macOS/docker)' -Skip:(-not $IsM
         function docker {}
         Mock -CommandName docker -MockWith { $global:LASTEXITCODE = 0; '[]' }
         $warnings = @()
-        $r = Get-SbxList -Runtime 'docker' -WarningAction SilentlyContinue -WarningVariable warnings
+        $null = Get-SbxList -Runtime 'docker' -WarningAction SilentlyContinue -WarningVariable warnings
         $warnings.Count | Should -Be 0
     }
 }
