@@ -8,18 +8,21 @@ Describe 'Invoke-Sbx dispatch (v2)' -Skip:(-not $IsWindows) {
         New-Item -ItemType Directory -Force (Join-Path $TestDrive 'ws\foo') | Out-Null
     }
     It 'sbx foo (default) ensures sbx-main then execs the tmux attach in-process' {
+        function wslc {}
         Mock -CommandName wslc -MockWith { $script:seen = $args }
         Invoke-Sbx @('foo')
         Should -Invoke Start-SbxMain -Times 1
         ($script:seen -join ' ') | Should -Be 'exec -it sbx-main tmux new-session -A -s foo -c /work/foo claude --dangerously-skip-permissions'
     }
     It 'sbx (no args, default) attaches the hub at /work' {
+        function wslc {}
         Mock -CommandName wslc -MockWith { $script:seen = $args }
         Invoke-Sbx @()
         ($script:seen -join ' ') | Should -BeLike '*-s hub -c /work claude*'
     }
     It 'sbx foo --new-window spawns a NEW WT window with the encoded attach, no cleanup' {
         Mock -CommandName Start-Process -MockWith { $script:file = "$FilePath"; $script:wt = $ArgumentList }
+        function wslc {}
         Mock -CommandName wslc -MockWith { throw 'should not run in-process' }
         Invoke-Sbx @('foo', '--new-window')
         $script:file | Should -Be 'wt.exe'
@@ -35,6 +38,7 @@ Describe 'Invoke-Sbx dispatch (v2)' -Skip:(-not $IsWindows) {
     }
     It 'scratch (default) runs --rm with cleanup and no /work' {
         $script:calls = @()
+        function wslc {}
         Mock -CommandName wslc -MockWith { $script:calls += ,($args -join ' ') }
         Invoke-Sbx @('scratch')
         ($script:calls -join '|') | Should -BeLike '*run --rm*'
