@@ -147,6 +147,33 @@ Describe 'sync.conf round-trip' {
     }
 }
 
+# The dirs holding the sync key and the GH PAT. The files are written 600, but a
+# world-readable PARENT still lets any other local account list and open them -
+# ~/.ssh has been 700 since forever for the same reason.
+Describe 'New-SbxSecretDir' -Skip:$IsWindows {
+    It 'creates the dir 700, not at the umask default' {
+        $d = Join-Path $TestDrive 'secret-new'
+        New-SbxSecretDir -Path $d | Out-Null
+        (& stat -c '%a' $d 2>$null) ?? (& stat -f '%Lp' $d) | Should -Be '700'
+    }
+    It 'tightens a dir left loose by a pre-fix install' {
+        $d = Join-Path $TestDrive 'secret-loose'
+        New-Item -ItemType Directory -Force $d | Out-Null
+        & chmod 755 $d
+        New-SbxSecretDir -Path $d | Out-Null
+        (& stat -c '%a' $d 2>$null) ?? (& stat -f '%Lp' $d) | Should -Be '700'
+    }
+    It 'is what the sync and gh writers actually use' {
+        $s = Join-Path $TestDrive 'sd'; $g = Join-Path $TestDrive 'gd'
+        Write-SbxSyncConf -Address '10.0.0.1' -SshUser 'me' -Port 22 -SyncDir $s | Out-Null
+        $tok = Join-Path $TestDrive 'tok'; [IO.File]::WriteAllText($tok, 'ghp_x')
+        Write-SbxGhToken -TokenFile $tok -GhDir $g | Out-Null
+        foreach ($d in $s, $g) {
+            (& stat -c '%a' $d 2>$null) ?? (& stat -f '%Lp' $d) | Should -Be '700'
+        }
+    }
+}
+
 Describe 'Build-SbxMainCreateArgs sync mount' {
     It 'omits the key mount when c-heavy is not provisioned' {
         $a = Build-SbxMainCreateArgs -WorkspacePath '/Users/me/sbx-ws' -SyncDir $null -GhDir $null -Posix
