@@ -160,12 +160,14 @@ Describe 'Get-SbxMainState' {
 Describe 'Start-SbxMain' -Skip:(-not $IsWindows) {
     It 'no-ops when already running' {
         Mock -CommandName Get-SbxMainState -MockWith { 'running' }
+        function wslc {}
         Mock -CommandName wslc -MockWith { throw 'should not be called' }
         Start-SbxMain -Runtime 'wslc' -WorkspaceDir (Join-Path $TestDrive 'ws')
     }
     It 'starts a stopped container' {
         Mock -CommandName Get-SbxMainState -MockWith { 'stopped' }
         $script:calls = @()
+        function wslc {}
         Mock -CommandName wslc -MockWith { $script:calls += ,($args -join ' ') }
         Start-SbxMain -Runtime 'wslc' -WorkspaceDir (Join-Path $TestDrive 'ws')
         $script:calls | Should -Contain 'start sbx-main'
@@ -175,6 +177,7 @@ Describe 'Start-SbxMain' -Skip:(-not $IsWindows) {
         # Isolate: the seed has its own tests; here we only assert it is invoked.
         Mock -CommandName Set-SbxContainerGitIdentity -MockWith { }
         $script:calls = @()
+        function wslc {}
         Mock -CommandName wslc -MockWith { $script:calls += ,($args -join ' ') }
         $ws = Join-Path $TestDrive 'fresh-ws'
         Start-SbxMain -Runtime 'wslc' -WorkspaceDir $ws
@@ -189,6 +192,7 @@ Describe 'Start-SbxMain' -Skip:(-not $IsWindows) {
 Describe 'Invoke-SbxRebuild / Stop-SbxMain' -Skip:(-not $IsWindows) {
     It 'rebuild -Force removes then recreates without prompting' {
         $script:calls = @()
+        function wslc {}
         Mock -CommandName wslc -MockWith { $script:calls += ,($args -join ' ') }
         Mock -CommandName Get-SbxMainState -MockWith { 'absent' }
         Mock -CommandName Get-SbxWorkspacePath -MockWith { Join-Path $TestDrive 'ws' }
@@ -200,11 +204,13 @@ Describe 'Invoke-SbxRebuild / Stop-SbxMain' -Skip:(-not $IsWindows) {
     }
     It 'rebuild aborts on a non-y answer' {
         Mock -CommandName Read-Host -MockWith { 'n' }
+        function wslc {}
         Mock -CommandName wslc -MockWith { throw 'should not touch the runtime' }
         Invoke-SbxRebuild -Runtime 'wslc'
     }
     It 'stop stops the container (but does not remove it)' {
         $script:calls = @()
+        function wslc {}
         Mock -CommandName wslc -MockWith { $script:calls += ,($args -join ' ') }
         Stop-SbxMain -Runtime 'wslc'
         $script:calls | Should -Contain 'stop sbx-main'
