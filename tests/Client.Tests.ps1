@@ -45,6 +45,27 @@ BeforeAll {
 # tell it what went wrong, and the ssh options that keep a *misconfigured*
 # container from authenticating as something else.
 Describe 'sbx-sync-client.sh' -Skip:(-not (Get-Command sh -ErrorAction SilentlyContinue)) {
+    BeforeDiscovery {
+        # The leading-dash case is why the check exists at all: ssh reads
+        # "-oProxyCommand=..." as an option, not as a hostname.
+        $confCases = @(
+            @{ Field = 'host'; Body = "host=-oProxyCommand=x`nuser=me`nport=2222`n" }
+            @{ Field = 'host'; Body = "host=10.0.0.1 x`nuser=me`nport=2222`n" }
+            @{ Field = 'user'; Body = "host=10.0.0.1`nuser=me you`nport=2222`n" }
+            @{ Field = 'port'; Body = "host=10.0.0.1`nuser=me`nport=22x`n" }
+        )
+        # A CRLF-terminated conf is the case that motivated the guard - the host
+        # writing sync.conf is often Windows - but it can only be EXERCISED where
+        # the test host's sh hands the CR to the script. Git Bash translates it
+        # away on read, so on Windows the client sees a clean value, accepts it,
+        # and the case tests nothing (it failed exactly that way in CI). The
+        # target is the container's dash, which does pass the CR through, and
+        # ubuntu/macos cover that faithfully.
+        if (-not $IsWindows) {
+            $confCases += @{ Field = 'host'; Body = "host=10.0.0.1`r`nuser=me`nport=2222`n" }
+        }
+    }
+
     BeforeEach {
         $script:tmp = Join-Path $TestDrive "cl-$([guid]::NewGuid())"
         New-Item -ItemType Directory -Force $script:tmp | Out-Null
@@ -103,16 +124,7 @@ Describe 'sbx-sync-client.sh' -Skip:(-not (Get-Command sh -ErrorAction SilentlyC
         $r.Out  | Should -BeLike '*usage: sbx sync*'
     }
 
-    It 'rejects a sync.conf field that ssh would misread' -ForEach @(
-        # A CRLF-terminated conf is the realistic case - the host that writes it
-        # is often Windows - and the leading-dash ones are why the check exists
-        # at all: ssh reads "-oProxyCommand=..." as an option, not a hostname.
-        @{ Field = 'host'; Body = "host=10.0.0.1`r`nuser=me`nport=2222`n" }
-        @{ Field = 'host'; Body = "host=-oProxyCommand=x`nuser=me`nport=2222`n" }
-        @{ Field = 'host'; Body = "host=10.0.0.1 x`nuser=me`nport=2222`n" }
-        @{ Field = 'user'; Body = "host=10.0.0.1`nuser=me you`nport=2222`n" }
-        @{ Field = 'port'; Body = "host=10.0.0.1`nuser=me`nport=22x`n" }
-    ) {
+    It 'rejects a sync.conf field that ssh would misread' -ForEach $confCases {
         $bad = Join-Path $script:tmp 'bad.conf'
         [IO.File]::WriteAllText($bad, $Body)
         $r = Invoke-Client -ClientArgs @('sync', 'myrepo', 'push') -Conf $bad `
