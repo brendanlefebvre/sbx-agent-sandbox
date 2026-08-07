@@ -7,6 +7,15 @@ set -eu
 # ssh by hand; what constrains it is the forced command at the far end.
 conf="${SBX_SYNC_CONF:-/home/agent/.ssh-ro/sync.conf}"
 key="${SBX_SYNC_KEY:-$HOME/.ssh/id_sbx_sync}"
+# Same rationale, and the same non-secret: the tests need to observe the argv
+# this script builds without opening a connection. Shadowing `ssh` on PATH is the
+# obvious way and cannot be made to work on Windows - Git Bash prepends its OWN
+# /usr/bin at startup, and Git for Windows ships /usr/bin/ssh.exe there, so the
+# real ssh always wins over anything the test prepends and the assertions time
+# out on ConnectTimeout instead of failing. (`gh` has no such twin in /usr/bin,
+# which is why the PATH trick still works for it.) An explicit seam is
+# deterministic on every platform.
+ssh_bin="${SBX_SSH:-ssh}"
 die() { echo "sbx: $*" >&2; exit 2; }
 case "${1:-}" in
   sync) shift ;;
@@ -74,4 +83,4 @@ case "$port" in *[!0-9]*)               die "bad port= in $conf: '$port'" ;; esa
 # only appends to the candidate list, so any other key reachable from this
 # container could authenticate instead - landing on a session with no
 # restrict and no forced command, i.e. a shell on the host.
-exec ssh -o BatchMode=yes -o ConnectTimeout=10 -o IdentitiesOnly=yes -o IdentityAgent=none -i "$key" -p "$port" "$user@$host" "$name $op"
+exec "$ssh_bin" -o BatchMode=yes -o ConnectTimeout=10 -o IdentitiesOnly=yes -o IdentityAgent=none -i "$key" -p "$port" "$user@$host" "$name $op"

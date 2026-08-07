@@ -2,25 +2,30 @@ BeforeAll {
     $script:client = (Resolve-Path "$PSScriptRoot/../sbx-client.sh").Path
     $script:sh = (Get-Command sh -ErrorAction SilentlyContinue)?.Source
 
-    # Runs the real client under a POSIX shell with the conf/key/PATH it would see
-    # in the container. Returns exit code plus both streams, so a test can assert
-    # on the message an agent would actually read.
-    # Writes a stand-in for a real binary onto the fake PATH dir. The exec bit is
-    # the whole point: WriteAllText alone leaves it 0644, and a POSIX PATH lookup
-    # SKIPS a non-executable file - so the test would silently shell out to the
-    # host's real ssh/gh instead of the fake. On Windows this never bit, because
-    # MSYS sh treats files on NTFS as executable regardless.
+    # Writes a stand-in for a real binary. The exec bit is the whole point:
+    # WriteAllText alone leaves it 0644, and a POSIX PATH lookup SKIPS a
+    # non-executable file - so the test would silently shell out to the host's
+    # real gh instead of the fake, which is how two of these once "passed" on
+    # Windows and failed everywhere else.
     function New-FakeExe {
         param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$Body)
         [IO.File]::WriteAllText($Path, $Body)
         if (-not $IsWindows) { & chmod +x $Path }
     }
 
+    # Runs the real client under a POSIX shell with the conf/key it would see in
+    # the container. Returns exit code plus both streams, so a test can assert on
+    # the message an agent would actually read.
+    #
+    # ssh is redirected with SBX_SSH, not by shadowing PATH: Git Bash prepends
+    # its own /usr/bin, where Git for Windows ships ssh.exe, so on Windows a
+    # prepended fake is never reached. gh has no twin there and still uses PATH.
     function Invoke-Client {
         param([string[]]$ClientArgs = @(), [string]$Conf, [string]$Key,
-              [string]$FakeSshDir)
+              [string]$FakeSshDir, [string]$FakeSsh)
         $env:SBX_SYNC_CONF = $Conf
         $env:SBX_SYNC_KEY  = $Key
+        if ($FakeSsh) { $env:SBX_SSH = $FakeSsh }
         $old = $env:PATH
         if ($FakeSshDir) { $env:PATH = "$FakeSshDir$([IO.Path]::PathSeparator)$old" }
         try {
@@ -29,7 +34,7 @@ BeforeAll {
         }
         finally {
             $env:PATH = $old
-            Remove-Item Env:SBX_SYNC_CONF, Env:SBX_SYNC_KEY -ErrorAction SilentlyContinue
+            Remove-Item Env:SBX_SYNC_CONF, Env:SBX_SYNC_KEY, Env:SBX_SSH -ErrorAction SilentlyContinue
         }
     }
 }
@@ -47,12 +52,16 @@ Describe 'sbx-sync-client.sh' -Skip:(-not (Get-Command sh -ErrorAction SilentlyC
         $script:key  = Join-Path $script:tmp 'id_sbx_sync'
         [IO.File]::WriteAllText($script:conf, "host=10.0.0.1`nuser=me`nport=2222`n")
         [IO.File]::WriteAllText($script:key, "KEY")
-        # A stand-in ssh that records its argv instead of connecting.
+        # A stand-in ssh that records its argv instead of connecting. Handed to
+        # the client via SBX_SSH as a forward-slashed path - sh treats a
+        # backslash as an escape, so a native Windows path would not survive.
         $script:fake = Join-Path $script:tmp 'bin'
         New-Item -ItemType Directory -Force $script:fake | Out-Null
         $script:argvLog = Join-Path $script:tmp 'argv.txt'
-        New-FakeExe -Path (Join-Path $script:fake 'ssh') -Body `
+        $sshPath = Join-Path $script:fake 'ssh'
+        New-FakeExe -Path $sshPath -Body `
             "#!/bin/sh`nfor a in `"`$@`"; do echo `"`$a`"; done > '$($script:argvLog -replace '\\','/')'`nexit 0`n"
+        $script:fakeSsh = $sshPath -replace '\\', '/'
     }
 
     It 'is valid POSIX shell (the syntax gate the printf form never had)' {
@@ -107,7 +116,7 @@ Describe 'sbx-sync-client.sh' -Skip:(-not (Get-Command sh -ErrorAction SilentlyC
         $bad = Join-Path $script:tmp 'bad.conf'
         [IO.File]::WriteAllText($bad, $Body)
         $r = Invoke-Client -ClientArgs @('sync', 'myrepo', 'push') -Conf $bad `
-                           -Key $script:key -FakeSshDir $script:fake
+                           -Key $script:key -FakeSsh $script:fakeSsh
         $r.Exit | Should -Be 2
         $r.Out  | Should -BeLike "*bad $Field=*"
         # The guard must fire BEFORE ssh runs, not after it fails.
@@ -118,7 +127,7 @@ Describe 'sbx-sync-client.sh' -Skip:(-not (Get-Command sh -ErrorAction SilentlyC
         $ok = Join-Path $script:tmp 'ok.conf'
         [IO.File]::WriteAllText($ok, "host=fe80::1`nuser=my-user_1`n")
         Invoke-Client -ClientArgs @('sync', 'myrepo', 'push') -Conf $ok `
-                      -Key $script:key -FakeSshDir $script:fake | Out-Null
+                      -Key $script:key -FakeSsh $script:fakeSsh | Out-Null
         $argv = @(Get-Content $script:argvLog)
         $argv | Should -Contain 'my-user_1@fe80::1'
         $argv | Should -Contain '22'       # port= absent falls back to 22
@@ -130,7 +139,7 @@ Describe 'sbx-sync-client.sh' -Skip:(-not (Get-Command sh -ErrorAction SilentlyC
         # container could authenticate instead - landing on a session with no
         # restrict and no forced command, i.e. a shell on the host.
         Invoke-Client -ClientArgs @('sync', 'myrepo', 'push') -Conf $script:conf `
-                      -Key $script:key -FakeSshDir $script:fake | Out-Null
+                      -Key $script:key -FakeSsh $script:fakeSsh | Out-Null
         $argv = @(Get-Content $script:argvLog)
         $argv | Should -Contain 'IdentitiesOnly=yes'
         $argv | Should -Contain 'IdentityAgent=none'
@@ -139,7 +148,7 @@ Describe 'sbx-sync-client.sh' -Skip:(-not (Get-Command sh -ErrorAction SilentlyC
 
     It 'sends the request as ONE fixed two-token remote command' {
         Invoke-Client -ClientArgs @('sync', 'myrepo', 'push') -Conf $script:conf `
-                      -Key $script:key -FakeSshDir $script:fake | Out-Null
+                      -Key $script:key -FakeSsh $script:fakeSsh | Out-Null
         $argv = @(Get-Content $script:argvLog)
         $argv[-1] | Should -Be 'myrepo push'      # one argv element, not two
         $argv     | Should -Contain 'me@10.0.0.1'
