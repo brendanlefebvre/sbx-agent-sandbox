@@ -1193,8 +1193,19 @@ function New-SbxSecretDir {
     # given ~/.ssh next door has always been 700 (Update-SbxAuthorizedKeys).
     # Applied on every call, not just creation: an already-existing dir from a
     # pre-fix install gets tightened the next time setup runs.
-    if (-not (Test-Path -LiteralPath $Path)) { New-Item -ItemType Directory -Force $Path | Out-Null }
-    if (-not $IsWindows) { & chmod 700 $Path }
+    if (-not (Test-Path -LiteralPath $Path)) {
+        New-Item -ItemType Directory -Force $Path -ErrorAction Stop | Out-Null
+    }
+    if (-not $IsWindows) {
+        # Fail CLOSED. The entire job of this function is to guarantee 0700
+        # before a caller writes a key or a token here; returning the path after
+        # a failed chmod would hand back a directory whose mode is unknown and
+        # let the secret land in it anyway - worse than not having tried.
+        & chmod 700 $Path
+        if ($LASTEXITCODE -ne 0) {
+            throw "sbx: could not set mode 700 on $Path (chmod exited $LASTEXITCODE) - refusing to store key material in a directory whose permissions are unknown"
+        }
+    }
     return $Path
 }
 
