@@ -200,7 +200,12 @@ Residual risk, stated plainly:
   choosing. This is inherent to autonomous sync, not a bug in the transport —
   it is the review gate you gave up.
 - The key is unencrypted on disk under `~/.sbx/sync`, by necessity. Its authority
-  is bounded by the forced command, not by secrecy.
+  is bounded by the forced command, not by secrecy. On non-Windows the directory
+  is `700` and the key `600`, so the bound is against *other local accounts on
+  the host* — not against you, and not against anything that already runs as you.
+  (`~/.sbx/gh` and the PAT under it get the same treatment.) If you provisioned
+  before that was enforced, re-running `sbx sync-setup` / `sbx gh-setup`
+  tightens an existing directory in place.
 
 Concurrency is handled: syncs of the same project serialize on a host-side lock
 under `~/.sbx/locks` (outside the workspace, so the container can't touch it), so

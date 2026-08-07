@@ -1181,6 +1181,21 @@ function Invoke-SbxSync {
 
 $script:SbxSyncTag = 'sbx-sync'
 
+function New-SbxSecretDir {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Path)
+    # Every dir that holds key material (~/.sbx/sync) or a token (~/.sbx/gh).
+    # New-Item alone leaves it at the umask default - typically 755, i.e. any
+    # other local account can list and read the sync key or the GH PAT. The
+    # files themselves are written 600, but a 755 parent is a needless widening
+    # given ~/.ssh next door has always been 700 (Update-SbxAuthorizedKeys).
+    # Applied on every call, not just creation: an already-existing dir from a
+    # pre-fix install gets tightened the next time setup runs.
+    if (-not (Test-Path -LiteralPath $Path)) { New-Item -ItemType Directory -Force $Path | Out-Null }
+    if (-not $IsWindows) { & chmod 700 $Path }
+    return $Path
+}
+
 function Get-SbxSyncDir {
     [CmdletBinding()]
     param([string]$Override = $env:SBX_SYNC_DIR)
@@ -1214,7 +1229,7 @@ function New-SbxSyncKey {
     param([string]$SyncDir = (Get-SbxSyncDir), [switch]$Force)
     $key = Get-SbxSyncKeyPath -SyncDir $SyncDir
     if ((Test-Path -LiteralPath $key) -and -not $Force) { return $key }
-    if (-not (Test-Path -LiteralPath $SyncDir)) { New-Item -ItemType Directory -Force $SyncDir | Out-Null }
+    New-SbxSecretDir -Path $SyncDir | Out-Null
     Remove-Item -LiteralPath $key, "$key.pub" -Force -ErrorAction SilentlyContinue
     # No passphrase: the container must use it unattended. That is the whole
     # threat model - the key's authority is bounded by the forced command, not by
@@ -1386,7 +1401,7 @@ function Write-SbxSyncConf {
     # Read LIVE by the in-container client off the read-only mount, so changing
     # the host address doesn't need a container rebuild. Deliberately not env
     # vars baked into `run` args, which would.
-    if (-not (Test-Path -LiteralPath $SyncDir)) { New-Item -ItemType Directory -Force $SyncDir | Out-Null }
+    New-SbxSecretDir -Path $SyncDir | Out-Null
     $path = Join-Path $SyncDir 'sync.conf'
     # LF endings and no BOM: this is parsed by /bin/sh inside the container.
     $body = (@("# written by sbx sync-setup - read by the in-container `sbx sync` client",
@@ -1514,7 +1529,7 @@ function Write-SbxGhToken {
     if (-not (Test-Path -LiteralPath $TokenFile)) { throw "sbx: token file not found: $TokenFile" }
     $token = (Get-Content -Raw -LiteralPath $TokenFile).Trim()
     if (-not $token) { throw "sbx: token file is empty: $TokenFile" }
-    if (-not (Test-Path -LiteralPath $GhDir)) { New-Item -ItemType Directory -Force $GhDir | Out-Null }
+    New-SbxSecretDir -Path $GhDir | Out-Null
     $path = Get-SbxGhTokenPath -GhDir $GhDir
     # No BOM, no trailing newline: `gh auth login --with-token` reads stdin
     # verbatim and a stray CR/newline risks being read as part of the token.
