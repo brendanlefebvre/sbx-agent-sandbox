@@ -7,6 +7,12 @@ on:
     branches: [main]
   pull_request:
 
+# Both jobs run repository-controlled code (the test suite, and linters over the
+# tree), so give the token nothing beyond reading the checkout. Naming any
+# permission sets every unnamed one to none, which is the point.
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -24,10 +30,16 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
+      # persist-credentials: false - nothing after checkout runs a git command,
+      # so the token has no reason to sit in the job's local git config where
+      # the suite and the linters could reach it.
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
-      # Pinned, and matching the version the Sandboxfile installs into the image,
-      # so a green CI run means the same thing as a green in-sandbox run.
+      # Must match PESTER_VERSION in the Sandboxfile - bump the two together.
+      # That is what makes a green CI run and a green in-sandbox run mean the
+      # same thing; before both were pinned they merely happened to agree.
       # -SkipPublisherCheck: windows-latest ships an old Pester signed with a
       # different certificate, which otherwise blocks the side-by-side install.
       - name: Install Pester
@@ -46,6 +58,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       # Both scripts are shellcheck-clean today; this keeps them that way.
       - name: shellcheck

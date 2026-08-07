@@ -36,9 +36,16 @@ RUN npm install -g @anthropic-ai/claude-code
 # HTTPS with no package-manager signature behind it, so the hash is the only
 # integrity check there is. Refresh with:
 #   curl -fsSL https://github.com/PowerShell/PowerShell/releases/download/v<ver>/hashes.sha256 | grep linux
+#
+# PESTER_VERSION is pinned for the same reason and MUST match the version
+# .github/workflows/ci.yml installs - bump the two together. Unpinned, the image
+# floats to whatever is newest at build time while CI stays fixed, so the two
+# can disagree without anyone noticing and "green in the sandbox" stops meaning
+# "green in CI". They agreed by luck until this was pinned.
 ARG PWSH_VERSION=7.6.4
 ARG PWSH_SHA256_ARM64=d4ef2382fa452f2ccbdb48a01adbbce9ed64954872123970c16be6d086d1224b
 ARG PWSH_SHA256_X64=4471b5a36bfe86ec7af8525d36bb1cacba0128e7aac22d05cc064bc00e604721
+ARG PESTER_VERSION=6.0.1
 RUN arch=$(dpkg --print-architecture) \
     && case "$arch" in \
          arm64) pwsh_arch=arm64; pwsh_sha="$PWSH_SHA256_ARM64" ;; \
@@ -53,7 +60,7 @@ RUN arch=$(dpkg --print-architecture) \
     && chmod +x /opt/microsoft/powershell/7/pwsh \
     && ln -s /opt/microsoft/powershell/7/pwsh /usr/bin/pwsh \
     && rm /tmp/pwsh.tar.gz \
-    && pwsh -NoProfile -Command "Install-Module Pester -Force -Scope AllUsers" \
+    && pwsh -NoProfile -Command "Install-Module Pester -RequiredVersion ${PESTER_VERSION} -Force -Scope AllUsers" \
     && pwsh -NoProfile -Command "(Get-Module -ListAvailable Pester).Version"
 
 # Git config for the mounted Windows repo:
