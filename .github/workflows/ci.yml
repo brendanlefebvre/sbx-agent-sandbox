@@ -1,0 +1,76 @@
+name: CI
+
+# GitHub is this project's integration point (see CLAUDE.md) - branches land via
+# PR against main, so that is where the gate has to sit.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    # All three, because the failures this suite has actually shipped were
+    # platform-specific in both directions: tests/Client.Tests.ps1 wrote its fake
+    # ssh/gh without an exec bit and passed only on Windows (MSYS fakes the bit),
+    # while the launcher itself is Windows-first and macOS is the daily driver.
+    # A single-OS gate would have caught neither.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pinned, and matching the version the Sandboxfile installs into the image,
+      # so a green CI run means the same thing as a green in-sandbox run.
+      # -SkipPublisherCheck: windows-latest ships an old Pester signed with a
+      # different certificate, which otherwise blocks the side-by-side install.
+      - name: Install Pester
+        shell: pwsh
+        run: Install-Module Pester -RequiredVersion 6.0.1 -Force -SkipPublisherCheck -Scope CurrentUser
+
+      # No live container here - these are the pure builder/validator unit tests.
+      # Integration stays manual in verify/CHECKLIST.md.
+      - name: Run unit tests
+        shell: pwsh
+        run: |
+          $r = Invoke-Pester -Path ./tests -Output Detailed -PassThru
+          if ($r.FailedCount -gt 0) { throw "$($r.FailedCount) test(s) failed" }
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Both scripts are shellcheck-clean today; this keeps them that way.
+      - name: shellcheck
+        run: shellcheck sbx-client.sh sbx-agent-status.sh
+
+      # Belt and braces: shellcheck parses, but this is the real interpreter's
+      # own syntax check. Each script gets the shell it declares - sbx-client.sh
+      # is #!/bin/sh and runs under the container's dash, while
+      # sbx-agent-status.sh is #!/usr/bin/env bash and uses bash-only syntax
+      # (`sh -n` on it fails at the process substitution on line 38).
+      - name: syntax check
+        run: |
+          sh -n sbx-client.sh
+          bash -n sbx-agent-status.sh
+
+      - name: Install PSScriptAnalyzer
+        shell: pwsh
+        run: Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Force -Scope CurrentUser
+
+      # Rule selection and the reasoning behind each exclusion live in
+      # PSScriptAnalyzerSettings.psd1. Any finding fails the job - the repo is at
+      # zero, so there is no backlog to grandfather in.
+      - name: PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          $r = Invoke-ScriptAnalyzer -Path . -Recurse -Settings ./PSScriptAnalyzerSettings.psd1
+          if ($r) { $r | Format-Table Severity,RuleName,ScriptName,Line,Message -AutoSize | Out-String -Width 200 | Write-Host }
+          if ($r) { throw "$(@($r).Count) PSScriptAnalyzer finding(s)" }
