@@ -31,8 +31,8 @@ for the implementation plan.
   `Invoke-ScriptAnalyzer -Path . -Recurse -Settings ./PSScriptAnalyzerSettings.psd1`.
   All three are at **zero findings**; the settings file documents why each excluded rule
   is excluded, so add a suppression with a reason rather than widening the exclusions.
-- CI (`.github/workflows/ci.yml`) runs the unit suite on ubuntu/macos/windows plus the
-  lint job, on PRs and pushes to `main`. Three OSes on purpose: the suite has shipped
+- CI (`.github/workflows/ci.yml`) runs the unit suite on Ubuntu, macOS, and Windows plus
+  the lint job, on PRs and pushes to `main`. Three OSes on purpose: the suite has shipped
   failures that were green on Windows and red everywhere else (fake binaries written
   without an exec bit) — a single-OS gate catches neither direction.
 - After any `sbx.ps1` change or merge, open host terminals still hold the old dot-sourced
