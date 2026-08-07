@@ -204,6 +204,9 @@ function Restore-AuthorizedKeys {
 }
 
 function Get-CandidateHostAddresses {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingEmptyCatchBlock', '',
+        Justification = 'Address discovery is a best-effort sweep - a host with no enumerable IPv4 just contributes no candidates.')]
+    param()
     if ($Address.Count) { return $Address }
     $cands = [System.Collections.Generic.List[string]]::new()
     # Addresses as the CONTAINER sees them: default-route gateway + DNS nameserver

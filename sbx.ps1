@@ -468,6 +468,8 @@ function New-SbxLink {
 }
 
 function Stop-SbxSession {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingEmptyCatchBlock', '',
+        Justification = 'Killing a tmux session is best-effort by design - see the comment on the catch.')]
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Name,
           [string]$Runtime = (Resolve-SbxRuntime))

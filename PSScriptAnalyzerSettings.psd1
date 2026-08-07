@@ -31,10 +31,12 @@
         # use them, all of which pass a single obvious path.
         'PSAvoidUsingPositionalParameters'
 
-        # Stop-SbxSession's empty catch is the documented design: killing a tmux
-        # session is best-effort and must never be fatal, including when the
-        # runtime is missing from PATH entirely. Same in probes/.
-        'PSAvoidUsingEmptyCatchBlock'
+        # NOT excluded, deliberately: PSAvoidUsingEmptyCatchBlock. It has only
+        # two legitimate violations (Stop-SbxSession and one probe), so those
+        # carry a SuppressMessageAttribute each and the rule stays live for
+        # every other file. Prefer that shape wherever the site count is small
+        # enough to make it practical - a blanket exclusion also excuses code
+        # nobody has written yet.
 
         # Backwards for this repo - every file that must be read by sh, ssh, or
         # git inside the container is deliberately written WITHOUT a BOM.
