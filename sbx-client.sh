@@ -78,6 +78,10 @@ port=$(sed -n 's/^port=//p' "$conf" | head -1)
 case "$host" in *[!a-zA-Z0-9.:_-]*|-*) die "bad host= in $conf: '$host'" ;; esac
 case "$user" in *[!a-zA-Z0-9._-]*|-*)   die "bad user= in $conf: '$user'" ;; esac
 case "$port" in *[!0-9]*)               die "bad port= in $conf: '$port'" ;; esac
+# Digits alone are not enough - 0 and 65536 are digits and ssh rejects both. The
+# length test comes first so a 40-digit value can't overflow the arithmetic.
+[ "${#port}" -le 5 ] && [ "$port" -ge 1 ] && [ "$port" -le 65535 ] \
+  || die "bad port= in $conf: '$port' - must be 1-65535"
 # The remote command is fixed two tokens; sbx-sync-exec re-validates both.
 # IdentitiesOnly/IdentityAgent: offer the sync key and NOTHING else. -i alone
 # only appends to the candidate list, so any other key reachable from this
