@@ -25,6 +25,16 @@ for the implementation plan.
 ## Test
 - Unit (pure builder fns):  `pwsh -NoProfile -Command "Invoke-Pester tests -Output Detailed"`
 - Integration (live container):  run `verify/CHECKLIST.md` by hand on this machine.
+- Lint (what CI gates on):  `shellcheck sbx-client.sh sbx-agent-status.sh`,
+  `sh -n sbx-client.sh` + `bash -n sbx-agent-status.sh` (each script gets the shell it
+  declares — the status script is bash, not POSIX), and
+  `Invoke-ScriptAnalyzer -Path . -Recurse -Settings ./PSScriptAnalyzerSettings.psd1`.
+  All three are at **zero findings**; the settings file documents why each excluded rule
+  is excluded, so add a suppression with a reason rather than widening the exclusions.
+- CI (`.github/workflows/ci.yml`) runs the unit suite on ubuntu/macos/windows plus the
+  lint job, on PRs and pushes to `main`. Three OSes on purpose: the suite has shipped
+  failures that were green on Windows and red everywhere else (fake binaries written
+  without an exec bit) — a single-OS gate catches neither direction.
 - After any `sbx.ps1` change or merge, open host terminals still hold the old dot-sourced
   functions — start live testing from a fresh terminal or re-dot-source `sbx.ps1` first,
   or you'll debug phantom failures.
