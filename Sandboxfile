@@ -30,15 +30,24 @@ RUN npm install -g @anthropic-ai/claude-code
 # sandbox (self-hosted sbx development). Microsoft's apt repo is x64-only, so
 # install from the GitHub release tarball, arch-mapped (arm64 on both current
 # hosts). Version pinned; bump deliberately.
+# Checksums are from the release's own hashes.sha256 and MUST be bumped with
+# PWSH_VERSION - a stale pair fails the build loudly rather than installing an
+# unverified binary. Unlike everything else here, this tarball arrives over plain
+# HTTPS with no package-manager signature behind it, so the hash is the only
+# integrity check there is. Refresh with:
+#   curl -fsSL https://github.com/PowerShell/PowerShell/releases/download/v<ver>/hashes.sha256 | grep linux
 ARG PWSH_VERSION=7.6.4
+ARG PWSH_SHA256_ARM64=d4ef2382fa452f2ccbdb48a01adbbce9ed64954872123970c16be6d086d1224b
+ARG PWSH_SHA256_X64=4471b5a36bfe86ec7af8525d36bb1cacba0128e7aac22d05cc064bc00e604721
 RUN arch=$(dpkg --print-architecture) \
     && case "$arch" in \
-         arm64) pwsh_arch=arm64 ;; \
-         amd64) pwsh_arch=x64 ;; \
+         arm64) pwsh_arch=arm64; pwsh_sha="$PWSH_SHA256_ARM64" ;; \
+         amd64) pwsh_arch=x64;   pwsh_sha="$PWSH_SHA256_X64" ;; \
          *) echo "unsupported arch: $arch" && exit 1 ;; \
        esac \
     && curl -fsSL -o /tmp/pwsh.tar.gz \
        "https://github.com/PowerShell/PowerShell/releases/download/v${PWSH_VERSION}/powershell-${PWSH_VERSION}-linux-${pwsh_arch}.tar.gz" \
+    && echo "${pwsh_sha}  /tmp/pwsh.tar.gz" | sha256sum -c - \
     && mkdir -p /opt/microsoft/powershell/7 \
     && tar -xzf /tmp/pwsh.tar.gz -C /opt/microsoft/powershell/7 \
     && chmod +x /opt/microsoft/powershell/7/pwsh \
@@ -115,10 +124,9 @@ RUN printf '\nHost *\n    StrictHostKeyChecking accept-new\n' >> /etc/ssh/ssh_co
 # scopes — this script is convenience routing in both cases.
 #
 # The script is a real file in the repo, not a printf here: it gets an `sh -n`
-# syntax gate and unit tests (tests/Client.Tests.ps1) like any other code — and
-# is shellcheck-able, though no host in this project has shellcheck installed
-# yet. chmod separately rather than COPY --chmod, since git on Windows drops
-# the exec bit.
+# syntax gate, unit tests (tests/Client.Tests.ps1), and a shellcheck run in CI
+# (.github/workflows/ci.yml) like any other code. chmod separately rather than
+# COPY --chmod, since git on Windows drops the exec bit.
 COPY sbx-client.sh /usr/local/bin/sbx
 RUN chmod +x /usr/local/bin/sbx
 
