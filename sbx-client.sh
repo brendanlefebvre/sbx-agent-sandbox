@@ -61,6 +61,14 @@ port=$(sed -n 's/^port=//p' "$conf" | head -1)
 [ -n "$host" ] || die "no host= in $conf"
 [ -n "$user" ] || die "no user= in $conf"
 [ -n "$port" ] || port=22
+# Sanity-check before interpolating into the ssh command line. sync.conf is
+# host-written and read-only in here, so this is not a boundary - it is a
+# misconfiguration guard. A stray trailing space or a CRLF-terminated conf (the
+# host is often Windows) otherwise turns into a baffling ssh error, and a value
+# starting with "-" would be read by ssh as an option rather than a hostname.
+case "$host" in *[!a-zA-Z0-9.:_-]*|-*) die "bad host= in $conf: '$host'" ;; esac
+case "$user" in *[!a-zA-Z0-9._-]*|-*)   die "bad user= in $conf: '$user'" ;; esac
+case "$port" in *[!0-9]*)               die "bad port= in $conf: '$port'" ;; esac
 # The remote command is fixed two tokens; sbx-sync-exec re-validates both.
 # IdentitiesOnly/IdentityAgent: offer the sync key and NOTHING else. -i alone
 # only appends to the candidate list, so any other key reachable from this
