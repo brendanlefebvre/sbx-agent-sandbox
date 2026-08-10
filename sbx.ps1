@@ -12,8 +12,26 @@ function ConvertFrom-SbxArgs {
         PrintOnly = $false; Remove = $false
         # gh-setup only (see Invoke-SbxGhSetup).
         TokenFile = $null
+        # sync only: git options passed through verbatim, validated against the
+        # per-verb allowlist by Resolve-SbxSyncRequest - never here.
+        GitOptions = @()
     }
     $positional = [System.Collections.Generic.List[string]]::new()
+
+    # `sync` is parsed HERE, ahead of the option loop, because everything after
+    # `<name> <op>` belongs to git, not to sbx. Running those tokens through the
+    # loop below would throw "Unknown option: --rebase" on the very args we mean
+    # to forward. The consequence is that `sync` takes no sbx options of its own -
+    # it has none, and the switch arm below says so if one is written anyway.
+    if ($Arguments.Count -and $Arguments[0] -eq 'sync') {
+        if ($Arguments.Count -lt 3) { throw "sbx: 'sync' expects <name> <push|pull|fetch> [git options]" }
+        if ($Arguments[1] -in @('.', '..')) { throw "sbx: invalid project name" }
+        $opts.Command = 'sync'; $opts.Target = $Arguments[1]; $opts.Operation = $Arguments[2]
+        # Guarded: $Arguments[3..2] would yield a REVERSED two-element range, not
+        # the empty one the bare slice reads like.
+        if ($Arguments.Count -gt 3) { $opts.GitOptions = @($Arguments[3..($Arguments.Count - 1)]) }
+        return [pscustomobject]$opts
+    }
 
     # Options that consume the NEXT argument as their value. Kept as a table so the
     # loop below stays a plain if/elseif chain - `continue` inside a `switch` inside
@@ -55,9 +73,10 @@ function ConvertFrom-SbxArgs {
             $opts.Command = 'rm'; $opts.Target = $positional[1]
         }
         'sync' {
-            if ($positional.Count -lt 3) { throw "sbx: 'sync' expects <name> <push|pull|fetch>" }
-            if ($positional[1] -in @('.', '..')) { throw "sbx: invalid project name" }
-            $opts.Command = 'sync'; $opts.Target = $positional[1]; $opts.Operation = $positional[2]
+            # Only reachable when 'sync' was NOT the first argument - i.e. an sbx
+            # option was written in front of it. The early branch above owns every
+            # other case, and sync has no options of its own to justify the form.
+            throw "sbx: 'sync' takes no sbx options - write 'sbx sync <name> <push|pull|fetch> [git options]'"
         }
         'sync-setup' { $opts.Command = 'sync-setup' }
         'gh-setup'   { $opts.Command = 'gh-setup' }
@@ -198,7 +217,7 @@ function Invoke-Sbx {
         'ls'      { return Get-SbxProjects -Runtime $runtime }
         'add'     { return Add-SbxProject -Path $o.Target }
         'rm'      { return Remove-SbxProject -Name $o.Target -Runtime $runtime }
-        'sync'    { return Invoke-SbxSync -Name $o.Target -Operation $o.Operation }
+        'sync'    { return Invoke-SbxSync -Name $o.Target -Operation $o.Operation -Options $o.GitOptions }
         'sync-setup' {
             $p = @{ PrintOnly = [bool]$o.PrintOnly; Remove = [bool]$o.Remove }
             foreach ($k in 'Address', 'SshUser', 'AuthorizedKeysFile') {
@@ -822,6 +841,137 @@ function Stop-SbxMain {
 
 $script:SbxSyncOps = @('push', 'pull', 'fetch')
 
+# ---- the git-option allowlist -------------------------------------------------
+#
+# Passthrough exists because the three bare verbs are not enough in practice -
+# `pull --recurse-submodules`, `pull --rebase`, `fetch --prune` are ordinary
+# working requests, and without them the human ends up bypassing sbx entirely.
+# It stays an ALLOWLIST for the same reason the verb list is one: anything wider
+# turns sync into a host-command proxy.
+#
+# Two shape rules do most of the security work, before the table is even
+# consulted:
+#   * `--flag` or `--flag=value` only. No positionals, so no remote, no refspec,
+#     no URL can reach git - `push` still goes exactly where the repo's own
+#     config points, which is the risk already accepted in docs/SYNC.md, and no
+#     wider.
+#   * A value must ride on the SAME token as its flag. Nothing here consumes the
+#     next token, so a value can never be read as a flag (or a flag as a value)
+#     depending on how many tokens the caller supplied.
+# Between them, the three options that make git run a program on THIS host -
+# `--upload-pack=`, `--receive-pack=`, `--exec=` (they exec locally when the
+# remote is a local path) - are unreachable by construction as well as absent
+# from the table. Short flags are refused too: `-o`, and any clustered form.
+#
+# Deliberately absent, and to be left absent:
+#   * --force / --force-with-lease / -f on push. c-heavy agents can fetch first,
+#     which satisfies a lease, so the lease form is close to plain --force in an
+#     autonomous setting; neither is worth handing over. A human who wants to
+#     force-push has a host shell.
+#   * --set-upstream. It cannot do its job without the `origin <branch>`
+#     positionals this allowlist refuses, so allowing it would only produce a
+#     confusing git error.
+#   * --exec / --upload-pack / --receive-pack. See above - these are the point.
+$script:SbxSyncOptions = @{
+    'pull' = @{
+        Exact  = @('--rebase', '--no-rebase', '--ff', '--no-ff', '--ff-only',
+                   '--autostash', '--no-autostash', '--recurse-submodules',
+                   '--no-recurse-submodules', '--tags', '--no-tags', '--prune',
+                   '--quiet', '--verbose')
+        # --recurse-submodules on pull fetches submodules and CHECKS THEM OUT. It
+        # does not honour `submodule.<name>.update = !cmd` (probed: pull passes
+        # --checkout explicitly, so the !cmd form never runs; a plain
+        # `git submodule update` does run it, which is what makes the key worth
+        # listing in the advisory denylist below). See FINDINGS P11.
+        Valued = @{ '--recurse-submodules' = '^(yes|no|on-demand)$' }
+    }
+    'fetch' = @{
+        Exact  = @('--all', '--prune', '--prune-tags', '--tags', '--no-tags',
+                   '--force', '--unshallow', '--dry-run', '--recurse-submodules',
+                   '--no-recurse-submodules', '--quiet', '--verbose')
+        Valued = @{ '--recurse-submodules' = '^(yes|no|on-demand)$'
+                    '--depth'              = '^[0-9]{1,9}$'
+                    '--deepen'             = '^[0-9]{1,9}$' }
+    }
+    'push' = @{
+        # No --prune here, though pull and fetch both have it: on push it DELETES
+        # remote branches that have no local counterpart, and which refs that
+        # covers is decided by `remote.<name>.push`, a config key the container
+        # can write. That is the same remote-destructive class as --force, and it
+        # is excluded for the same reason. On pull/fetch --prune only tidies local
+        # remote-tracking refs.
+        Exact  = @('--dry-run', '--tags', '--follow-tags', '--atomic',
+                   '--quiet', '--verbose')
+        Valued = @{ '--recurse-submodules' = '^(check|on-demand|no)$' }
+    }
+}
+
+# A bound on how much argv a single request can build. No allowlisted option is
+# dangerous, but an unbounded list is still an unbounded input.
+$script:SbxSyncOptionMax = 8
+
+# The shape gate: what an option must look like before its name is even compared
+# against the table. Also decides whether a rejected option is safe to quote back
+# in the reason - a token that matches this is plain ASCII and cannot smuggle
+# anything into a log line or a terminal.
+$script:SbxSyncOptionShape = '^--[a-z][a-z0-9-]*(=[A-Za-z0-9._-]+)?$'
+
+function Get-SbxSyncOptionDenial {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Operation,
+          [string[]]$Options = @())
+    # Returns a denial reason, or $null when every option is allowed for this
+    # verb. A reason, not a throw, to match the rest of the validator: the forced
+    # command answers with a structured REJECT while the CLI throws.
+    #
+    # $Operation must already be canonicalized - the table is keyed by the
+    # lowercase verb git actually receives.
+    $opts = @($Options | Where-Object { $null -ne $_ })
+    if (-not $opts.Count) { return $null }
+    if ($opts.Count -gt $script:SbxSyncOptionMax) {
+        return "at most $($script:SbxSyncOptionMax) options per sync request"
+    }
+    $table = $script:SbxSyncOptions[$Operation]
+    if (-not $table) { return "'$Operation' takes no options" }
+    foreach ($opt in $opts) {
+        if ($opt -notmatch $script:SbxSyncOptionShape) {
+            # Never quoted back: a token that failed the shape gate is arbitrary
+            # attacker-controlled text, and this reason is printed on the host.
+            return "sync options must look like --flag or --flag=value"
+        }
+        $eq    = $opt.IndexOf('=')
+        $flag  = if ($eq -lt 0) { $opt } else { $opt.Substring(0, $eq) }
+        $value = if ($eq -lt 0) { $null } else { $opt.Substring($eq + 1) }
+        # Safe to quote from here on - $opt matched the shape gate above.
+        if ($null -eq $value) {
+            if ($table.Exact -notcontains $flag) {
+                # `--depth 1` is the likely human version of this, and "not
+                # allowed" would send them looking for the wrong problem: the flag
+                # is fine, the space is not.
+                if ($table.Valued.ContainsKey($flag)) {
+                    return "option '$flag' needs its value on the same token, as '$flag=<value>'"
+                }
+                return "option '$flag' is not allowed for $Operation (see docs/SYNC.md for the list)"
+            }
+            continue
+        }
+        $pattern = $table.Valued[$flag]
+        if (-not $pattern) {
+            # Two different mistakes, and they deserve different answers: a flag
+            # that IS on the list but takes no value (`--rebase=interactive`) vs
+            # one that is not on the list at all (`--upload-pack=sh`).
+            if ($table.Exact -contains $flag) {
+                return "option '$flag' takes no value for $Operation (see docs/SYNC.md for the list)"
+            }
+            return "option '$flag' is not allowed for $Operation (see docs/SYNC.md for the list)"
+        }
+        if ($value -notmatch $pattern) {
+            return "value '$value' is not allowed for $flag (see docs/SYNC.md for the list)"
+        }
+    }
+    return $null
+}
+
 function Get-SbxWorkspaceChildDenial {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Dir,
@@ -872,6 +1022,7 @@ function Resolve-SbxSyncRequest {
     [CmdletBinding()]
     param([string]$Name,
           [string]$Operation,
+          [string[]]$Options = @(),
           [Parameter(Mandatory)][string]$WorkspaceDir)
     # THE security core of both sync paths - c-lite (`sbx sync`, host-side, run by
     # the human) and c-heavy (the SSH forced command, run by an agent in the
@@ -881,15 +1032,20 @@ function Resolve-SbxSyncRequest {
     # Returns a decision object rather than throwing so the forced command can
     # answer with a structured REJECT line while the CLI throws. Side-effect free
     # apart from reading the filesystem to confirm the repo - it never runs git.
-    $deny = { param($r) [pscustomobject]@{ Ok = $false; Name = $null; Operation = $null; Dir = $null; Reason = $r } }
+    $deny = { param($r) [pscustomobject]@{ Ok = $false; Name = $null; Operation = $null; Dir = $null
+                                           Options = @(); Reason = $r } }
 
-    # Verb allowlist. A wider surface (arbitrary git args) would turn this into a
-    # host-command proxy, which it must never become. Canonicalize to the lowercase
-    # form actually handed to git so a "PUSH" can't reach git as an invalid verb.
+    # Verb allowlist. Arbitrary git args would turn this into a host-command
+    # proxy, which it must never become; the options that ARE accepted go through
+    # Get-SbxSyncOptionDenial's allowlist below, per verb. Canonicalize to the
+    # lowercase form actually handed to git so a "PUSH" can't reach git as an
+    # invalid verb - and so the option table is keyed by the verb git will see.
     $canonical = $script:SbxSyncOps | Where-Object { $_ -eq $Operation } | Select-Object -First 1
     if (-not $canonical) {
         return (& $deny "sync operation must be one of: $($script:SbxSyncOps -join ', ')")
     }
+    $optDenial = Get-SbxSyncOptionDenial -Operation $canonical -Options $Options
+    if ($optDenial) { return (& $deny $optDenial) }
     # Reject traversal / separators lexically before touching the filesystem.
     if ([string]::IsNullOrWhiteSpace($Name) -or $Name -in @('.', '..') -or $Name -match '[\\/]') {
         return (& $deny "no project '$Name' in the workspace")
@@ -901,7 +1057,8 @@ function Resolve-SbxSyncRequest {
     # function's note before relying on this one.
     $denial = Get-SbxWorkspaceChildDenial -Dir $dir -WorkspaceDir $WorkspaceDir
     if ($denial) { return (& $deny $denial) }
-    return [pscustomobject]@{ Ok = $true; Name = $Name; Operation = $canonical; Dir = $dir; Reason = $null }
+    return [pscustomobject]@{ Ok = $true; Name = $Name; Operation = $canonical; Dir = $dir
+                              Options = @($Options | Where-Object { $null -ne $_ }); Reason = $null }
 }
 
 function Resolve-SbxSyncCommand {
@@ -909,20 +1066,26 @@ function Resolve-SbxSyncCommand {
     param([string]$OriginalCommand,
           [Parameter(Mandatory)][string]$WorkspaceDir)
     # Parses the one string SSH hands the forced command (SSH_ORIGINAL_COMMAND)
-    # into the two fields Resolve-SbxSyncRequest validates.
+    # into the fields Resolve-SbxSyncRequest validates.
     if ([string]::IsNullOrWhiteSpace($OriginalCommand)) {
         return [pscustomobject]@{ Ok = $false; Name = $null; Operation = $null; Dir = $null
-                                  Reason = 'no command (bare connection) - expected "<name> <op>"' }
+                                  Options = @(); Reason = 'no command (bare connection) - expected "<name> <op> [options]"' }
     }
-    # Requiring EXACTLY two whitespace-separated tokens is itself a guard: it
-    # rejects "push --force", "name; sh", "name op extra", and any shell operator
-    # that would smuggle in a second word.
-    $tokens = $OriginalCommand.Trim() -split '\s+'
-    if ($tokens.Count -ne 2) {
+    # This used to require EXACTLY two tokens, and that count WAS the
+    # anti-injection guard. It isn't any more, so read the replacement carefully:
+    # the first two tokens are still name and verb, and every token after them
+    # must clear the option allowlist's shape gate (`--flag[=value]`, plain ASCII,
+    # no spaces, no separators). "name push; sh" and "name push origin main" fail
+    # that gate exactly as they failed the count. Nothing here reaches a shell in
+    # any case - the tokens are handed to git as argv elements - but the gate is
+    # what keeps that true independently of how git is invoked.
+    $tokens = @($OriginalCommand.Trim() -split '\s+')
+    if ($tokens.Count -lt 2) {
         return [pscustomobject]@{ Ok = $false; Name = $null; Operation = $null; Dir = $null
-                                  Reason = "expected exactly two tokens '<name> <op>', got $($tokens.Count)" }
+                                  Options = @(); Reason = "expected at least two tokens '<name> <op>', got $($tokens.Count)" }
     }
-    return (Resolve-SbxSyncRequest -Name $tokens[0] -Operation $tokens[1] -WorkspaceDir $WorkspaceDir)
+    $options = @(if ($tokens.Count -gt 2) { $tokens[2..($tokens.Count - 1)] })
+    return (Resolve-SbxSyncRequest -Name $tokens[0] -Operation $tokens[1] -Options $options -WorkspaceDir $WorkspaceDir)
 }
 
 # ---- hardening the host-side git call -----------------------------------------
@@ -1052,6 +1215,13 @@ $script:SbxUnsafeGitConfigPatterns = @(
     '^filter\..*\.(clean|smudge|process)$'
     '^(diff|difftool)\..*\.(command|textconv|cmd)$'
     '^(merge|mergetool)\..*\.(driver|cmd)$'
+    # `submodule.<name>.update = !cmd` executes cmd host-side. Probed (FINDINGS
+    # P11): the option allowlist's --recurse-submodules does NOT reach it - pull
+    # passes --checkout explicitly, so the !cmd form never runs - and only a plain
+    # `git submodule update`, which no allowlisted verb performs, does. Listed
+    # anyway: this is a known exec key, the probe covers one git version, and the
+    # denylist's job is to over-match rather than to omit.
+    '^submodule\..*\.update$'
     '^sequence\.editor$'
     '^trailer\..*\.command$'
     '^(uploadpack|receive)\..*hook.*$'
@@ -1097,6 +1267,10 @@ function Invoke-SbxSyncGit {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Dir,
           [Parameter(Mandatory)][string]$Operation,
+          # Already validated by Resolve-SbxSyncRequest. This function does not
+          # re-check them: unlike the directory, they cannot change under us -
+          # they are values in our own argv, not state the container owns.
+          [string[]]$Options = @(),
           [string]$WorkspaceDir = (Get-SbxWorkspacePath),
           [string]$LockDir = (Get-SbxLockDir),
           [string[]]$HardeningArgs = (Get-SbxGitHardeningArgs),
@@ -1138,8 +1312,12 @@ function Invoke-SbxSyncGit {
                    "Inspect it (git -C `"$Dir`" config --list --show-scope) and remove the key if you did not set it.")
         }
         # One flat array rather than a splat: splatting an EMPTY $HardeningArgs
-        # slips an empty-string argument into git's argv.
-        $gitArgs = @('-C', $Dir) + @($HardeningArgs | Where-Object { $null -ne $_ }) + @($Operation)
+        # slips an empty-string argument into git's argv. Options land AFTER the
+        # verb, where git parses them as the subcommand's own - a passthrough
+        # option can therefore never be read as one of the `-c` pins in front of
+        # it, nor displace them.
+        $gitArgs = @('-C', $Dir) + @($HardeningArgs | Where-Object { $null -ne $_ }) + @($Operation) +
+                   @($Options | Where-Object { $_ })
         # Reset first: a native command sets $LASTEXITCODE, but a stale value from
         # an earlier call (or a mocked git in tests) must not read as a failure.
         $global:LASTEXITCODE = 0
@@ -1159,16 +1337,18 @@ function Invoke-SbxSync {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Name,
           [Parameter(Mandatory)][string]$Operation,
+          [string[]]$Options = @(),
           [string]$WorkspaceDir = (Get-SbxWorkspacePath))
     # c-lite sync (see spec): host-side git with host credentials, run by the
     # human. c-heavy (`sbx sync-setup`) lets an agent reach the SAME core through
-    # an SSH forced command - see sbx-sync-exec.ps1.
-    $d = Resolve-SbxSyncRequest -Name $Name -Operation $Operation -WorkspaceDir $WorkspaceDir
+    # an SSH forced command - see sbx-sync-exec.ps1. The option allowlist is part
+    # of that core, so the human's `--rebase` and an agent's are the same request.
+    $d = Resolve-SbxSyncRequest -Name $Name -Operation $Operation -Options $Options -WorkspaceDir $WorkspaceDir
     if (-not $d.Ok) { throw "sbx: $($d.Reason)" }
     # Pass the workspace on: Invoke-SbxSyncGit re-checks containment under the lock
     # and must measure against the SAME workspace this request was validated in,
     # not whatever $env:SBX_WORKSPACE says by then.
-    Invoke-SbxSyncGit -Dir $d.Dir -Operation $d.Operation -WorkspaceDir $WorkspaceDir
+    Invoke-SbxSyncGit -Dir $d.Dir -Operation $d.Operation -Options $d.Options -WorkspaceDir $WorkspaceDir
 }
 
 # ---- c-heavy: SSH forced-command callback (ROADMAP 1; probed in FINDINGS P7) ---

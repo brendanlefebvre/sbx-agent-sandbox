@@ -15,6 +15,18 @@ Describe 'Invoke-SbxSync' {
         Invoke-SbxSync -Name 'foo' -Operation 'push' -WorkspaceDir $script:ws
         ($script:seen -join ' ') | Should -Be "-C $(Join-Path $script:ws 'foo') push"
     }
+    It 'appends allowlisted options AFTER the verb, where git parses them as the subcommand''s' {
+        Mock -CommandName git -MockWith { $script:seen = $args }
+        Invoke-SbxSync -Name 'foo' -Operation 'pull' -Options @('--rebase', '--recurse-submodules') `
+                       -WorkspaceDir $script:ws
+        ($script:seen -join ' ') |
+            Should -Be "-C $(Join-Path $script:ws 'foo') pull --rebase --recurse-submodules"
+    }
+    It 'refuses the whole sync when ONE option is off the list - it does not drop it and carry on' {
+        Mock -CommandName git -MockWith { throw 'must not run' }
+        { Invoke-SbxSync -Name 'foo' -Operation 'pull' -Options @('--rebase', '--upload-pack=sh') `
+                         -WorkspaceDir $script:ws } | Should -Throw '*not allowed*'
+    }
     It 'rejects a non-allowlisted operation' {
         Mock -CommandName git -MockWith { throw 'must not run' }
         { Invoke-SbxSync -Name 'foo' -Operation 'push --force' -WorkspaceDir $script:ws } | Should -Throw '*one of*'
@@ -65,8 +77,113 @@ Describe 'Resolve-SbxSyncRequest' {
     }
 }
 
-# What arrives in SSH_ORIGINAL_COMMAND. The two-token rule is the anti-injection
-# guard: anything smuggling a second word ("; sh", "--force") lands here.
+# The git-option allowlist. Same standing as the verb list: every reject here is
+# a reject for an agent as much as for the human, because both rungs call the one
+# validator. The shape rules (`--flag[=value]`, value on the same token, no
+# positionals) are what make the dangerous options unreachable rather than merely
+# unlisted - see the header comment on $script:SbxSyncOptions.
+Describe 'sync git-option allowlist' {
+    BeforeAll {
+        $script:ws = Join-Path $TestDrive 'opt-ws'
+        New-Item -ItemType Directory -Force (Join-Path $script:ws 'myrepo') | Out-Null
+        function Test-Allowed {
+            param([string]$Op, [string[]]$Options)
+            (Resolve-SbxSyncRequest -Name 'myrepo' -Operation $Op -Options $Options -WorkspaceDir $script:ws).Ok
+        }
+    }
+    It 'accepts <op> <opts>' -ForEach @(
+        @{ op = 'pull';  opts = @('--recurse-submodules') }          # the case that prompted all this
+        @{ op = 'pull';  opts = @('--rebase', '--autostash') }
+        @{ op = 'pull';  opts = @('--recurse-submodules=on-demand') }
+        @{ op = 'fetch'; opts = @('--all', '--prune', '--prune-tags') }
+        @{ op = 'fetch'; opts = @('--depth=1') }
+        @{ op = 'push';  opts = @('--dry-run', '--follow-tags') }
+    ) {
+        Test-Allowed -Op $op -Options $opts | Should -BeTrue
+    }
+    It 'keeps the request unchanged when no options are given' {
+        $r = Resolve-SbxSyncRequest -Name 'myrepo' -Operation 'push' -WorkspaceDir $script:ws
+        $r.Ok            | Should -BeTrue
+        $r.Options.Count | Should -Be 0
+    }
+    It 'refuses <opt> on <op> - it makes git run a program on THIS host' -ForEach @(
+        # These three exec locally whenever the remote is a local path, which the
+        # container can arrange by editing remote.origin.url. They are the reason
+        # the allowlist exists; they must fail on every verb.
+        @{ op = 'fetch'; opt = '--upload-pack=/tmp/x' }
+        @{ op = 'pull';  opt = '--upload-pack=sh' }
+        @{ op = 'push';  opt = '--receive-pack=/tmp/x' }
+        @{ op = 'push';  opt = '--exec=/tmp/x' }
+    ) {
+        Test-Allowed -Op $op -Options @($opt) | Should -BeFalse
+    }
+    It 'refuses force-pushing: <opt>' -ForEach @(
+        # Deliberately absent, not an oversight. An agent can fetch first, which
+        # satisfies a lease - so on the c-heavy rung the lease form buys nothing
+        # over plain --force, and neither is being handed over.
+        @{ opt = '--force' }, @{ opt = '--force-with-lease' },
+        @{ opt = '--force-with-lease=refs/heads/main' }, @{ opt = '-f' }
+    ) {
+        Test-Allowed -Op 'push' -Options @($opt) | Should -BeFalse
+    }
+    It 'refuses <thing>, which is not an option at all' -ForEach @(
+        @{ thing = 'origin' }          # a remote name - positionals stay out
+        @{ thing = 'HEAD:main' }       # a refspec
+        @{ thing = 'https://evil.example/x' }
+        @{ thing = 'ext::sh -c id' }
+        @{ thing = '--' }
+        @{ thing = '-o' }              # short flags: no clustering, no space-separated values
+        @{ thing = '' }
+    ) {
+        Test-Allowed -Op 'push' -Options @($thing) | Should -BeFalse
+    }
+    It 'refuses a value on a SEPARATE token, so a value can never be read as a flag' {
+        Test-Allowed -Op 'fetch' -Options @('--depth', '1') | Should -BeFalse
+        # ...and says so specifically: the flag is fine, the space is not.
+        (Resolve-SbxSyncRequest -Name 'myrepo' -Operation 'fetch' -Options @('--depth', '1') `
+                                -WorkspaceDir $script:ws).Reason | Should -BeLike '*same token*'
+    }
+    It 'refuses a value outside the flag''s own pattern' {
+        Test-Allowed -Op 'fetch' -Options @('--depth=abc')             | Should -BeFalse
+        Test-Allowed -Op 'pull'  -Options @('--recurse-submodules=sh') | Should -BeFalse
+    }
+    It 'refuses a value on a flag that takes none' {
+        Test-Allowed -Op 'pull' -Options @('--rebase=interactive') | Should -BeFalse
+    }
+    It 'keeps the lists PER VERB - a valid option for one is not valid for another' {
+        Test-Allowed -Op 'push'  -Options @('--rebase')    | Should -BeFalse
+        Test-Allowed -Op 'push'  -Options @('--unshallow') | Should -BeFalse
+        Test-Allowed -Op 'fetch' -Options @('--autostash') | Should -BeFalse
+    }
+    It 'allows --prune where it tidies local refs, but not on push where it DELETES remote branches' {
+        # Which refs push --prune covers comes from `remote.<name>.push`, which
+        # the container can write - same remote-destructive class as --force.
+        Test-Allowed -Op 'fetch' -Options @('--prune') | Should -BeTrue
+        Test-Allowed -Op 'pull'  -Options @('--prune') | Should -BeTrue
+        Test-Allowed -Op 'push'  -Options @('--prune') | Should -BeFalse
+    }
+    It 'bounds the option count' {
+        $many = 1..($script:SbxSyncOptionMax + 1) | ForEach-Object { '--quiet' }
+        Test-Allowed -Op 'fetch' -Options $many | Should -BeFalse
+    }
+    It 'never quotes a shape-gate failure back into the reason - it is arbitrary request text' {
+        # The REJECT line is printed host-side and read by a human; a token that
+        # failed the gate has not been proved to be plain ASCII.
+        $r = Resolve-SbxSyncRequest -Name 'myrepo' -Operation 'push' `
+                                    -Options @("--x`e[2J`nFAKE") -WorkspaceDir $script:ws
+        $r.Ok     | Should -BeFalse
+        $r.Reason | Should -Not -BeLike '*FAKE*'
+        $r.Reason | Should -BeLike '*--flag*'
+    }
+    It 'validates options against the CANONICAL verb, so case cannot pick the wrong list' {
+        Test-Allowed -Op 'PULL'  -Options @('--rebase')    | Should -BeTrue
+        Test-Allowed -Op 'PUSH'  -Options @('--rebase')    | Should -BeFalse
+    }
+}
+
+# What arrives in SSH_ORIGINAL_COMMAND. The token COUNT used to be the
+# anti-injection guard; the option allowlist's shape gate is now, and these cases
+# are the proof that nothing the count caught has become reachable.
 Describe 'Resolve-SbxSyncCommand' {
     BeforeAll {
         $script:ws = Join-Path $TestDrive 'cmd-ws'
@@ -86,12 +203,19 @@ Describe 'Resolve-SbxSyncCommand' {
     }
     It 'rejects a single token (missing op)' {
         (Resolve-SbxSyncCommand -OriginalCommand 'myrepo' -WorkspaceDir $script:ws).Reason |
-            Should -BeLike '*exactly two tokens*'
+            Should -BeLike '*at least two tokens*'
+    }
+    It 'parses trailing tokens as git options and validates them' {
+        $r = Resolve-SbxSyncCommand -OriginalCommand 'myrepo pull --rebase --autostash' -WorkspaceDir $script:ws
+        $r.Ok      | Should -BeTrue
+        $r.Options | Should -Be @('--rebase', '--autostash')
     }
     It 'rejects extra tokens / shell smuggling' -ForEach @(
-        @{ c = 'myrepo push --force' }, @{ c = 'myrepo push origin main' },
-        @{ c = 'myrepo; sh' },          @{ c = 'myrepo push; sh' },
-        @{ c = 'myrepo push && sh' },   @{ c = '../secret push' }
+        @{ c = 'myrepo push --force' },   @{ c = 'myrepo push origin main' },
+        @{ c = 'myrepo; sh' },            @{ c = 'myrepo push; sh' },
+        @{ c = 'myrepo push && sh' },     @{ c = '../secret push' },
+        @{ c = 'myrepo push --quiet; sh' }, @{ c = 'myrepo fetch $(id)' },
+        @{ c = 'myrepo fetch --upload-pack=sh' }
     ) {
         (Resolve-SbxSyncCommand -OriginalCommand $c -WorkspaceDir $script:ws).Ok | Should -BeFalse
     }
@@ -236,6 +360,11 @@ Describe 'Get-SbxUnsafeGitConfig' {
         # it), but a denylist that silently omits a real exec key is worse than one
         # that over-matches.
         @{ key = 'diff.external';            value = 'sh -c evil' }
+        # Same standing as diff.external: a real exec key that the allowlisted
+        # --recurse-submodules does NOT reach (pull forces --checkout - FINDINGS
+        # P11), listed because the probe covers one git version and this list's
+        # job is to over-match.
+        @{ key = 'submodule.sub.update';     value = '!sh -c evil' }
     ) {
         & git -C $script:repo config $key $value
         Get-SbxUnsafeGitConfig -Dir $script:repo | Should -Contain $key

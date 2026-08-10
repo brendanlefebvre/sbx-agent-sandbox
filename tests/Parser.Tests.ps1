@@ -28,9 +28,38 @@ Describe 'ConvertFrom-SbxArgs (v2)' {
     }
     It 'parses sync <name> <op>' {
         $o = ConvertFrom-SbxArgs @('sync', 'foo', 'push')
-        $o.Command   | Should -Be 'sync'
-        $o.Target    | Should -Be 'foo'
-        $o.Operation | Should -Be 'push'
+        $o.Command    | Should -Be 'sync'
+        $o.Target     | Should -Be 'foo'
+        $o.Operation  | Should -Be 'push'
+        $o.GitOptions | Should -BeNullOrEmpty
+    }
+    It 'carries git options after the verb through UNPARSED' {
+        # The parser must not judge these - the per-verb allowlist in
+        # Resolve-SbxSyncRequest is the only thing that decides what git sees.
+        # What matters here is that they survive the trip instead of tripping the
+        # "Unknown option" arm meant for sbx's own flags.
+        $o = ConvertFrom-SbxArgs @('sync', 'foo', 'pull', '--recurse-submodules', '--rebase')
+        $o.Operation  | Should -Be 'pull'
+        $o.GitOptions | Should -Be @('--recurse-submodules', '--rebase')
+    }
+    It 'passes an option sbx would otherwise claim as its own to git, not to sbx' {
+        # --remove is an sbx flag for sync-setup/gh-setup. After `sync <name> <op>`
+        # it is git's problem (and the allowlist will refuse it) - it must never be
+        # read as $opts.Remove.
+        $o = ConvertFrom-SbxArgs @('sync', 'foo', 'push', '--remove')
+        $o.Remove     | Should -BeFalse
+        $o.GitOptions | Should -Be @('--remove')
+    }
+    It 'does not mangle the empty option list into a reversed range' {
+        # $Arguments[3..2] yields @(3,2) in PowerShell, not @() - the guard against
+        # that is easy to drop and silently forwards two bogus options.
+        (ConvertFrom-SbxArgs @('sync', 'foo', 'fetch')).GitOptions.Count | Should -Be 0
+    }
+    It 'rejects an sbx option written in FRONT of sync rather than silently retargeting it' {
+        # `sbx --tab sync foo push` used to reach the positional switch. sync is
+        # parsed before the option loop now, so this form has to fail loudly - the
+        # alternative is 'sync' being taken for a project name.
+        { ConvertFrom-SbxArgs @('--tab', 'sync', 'foo', 'push') } | Should -Throw "*'sync' takes no sbx options*"
     }
     It 'parses ls / rebuild / stop / scratch / status' {
         (ConvertFrom-SbxArgs @('ls')).Command      | Should -Be 'ls'
