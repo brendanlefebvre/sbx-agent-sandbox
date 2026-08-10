@@ -36,9 +36,10 @@ moot if an earlier one fails:
    it and stop. **Do not** "fix" it by routing container traffic through the host
    or adding a `ProxyJump` (FINDINGS P6 triage rule) — that undercuts the
    isolation sbx exists for, and we would redesign the transport instead.
-2. **Forced command fires + rejects.** With the pinned key, the three verbs run
-   and everything else (unknown verb, extra args, traversal, shell, forwarding)
-   is refused.
+2. **Forced command fires + rejects.** With the pinned key, the three verbs run —
+   with allowlisted git options where given — and everything else (unknown verb,
+   off-list or malformed options, positionals, traversal, shell, forwarding) is
+   refused.
 3. **Key placement surface.** Where the `authorized_keys` line had to live
    (per-user vs Windows `administrators_authorized_keys`) and the ACL it needed.
 4. **LAN exposure (manual).** The new host sshd must be reachable from the
@@ -123,11 +124,16 @@ containing `sbx-cheavy-probe` and remove the temp dir it named on startup.
 | Case | Expected |
 |------|----------|
 | `myrepo push` / `pull` / `fetch` | validator prints `OK`, git op runs |
+| `myrepo fetch --prune` | `OK myrepo fetch --prune` — allowlisted option reaches git and is echoed |
 | `myrepo clone` | `REJECT` (verb not allowed) |
-| `myrepo push --force` | `REJECT` (extra token) |
+| `myrepo push --force` | `REJECT` (option not on the list) |
 | `../secret push` | `REJECT` (traversal) |
 | `ghost push` | `REJECT` (not in workspace) |
-| `myrepo; sh` | `REJECT` (extra token / no shell) |
+| `myrepo; sh` | `REJECT` (verb not allowed / no shell) |
+| `myrepo push --quiet; sh` | `REJECT` (fails the option shape gate) |
+| `myrepo push origin main` | `REJECT` (positionals are not options) |
+| `myrepo fetch --upload-pack=sh` | `REJECT` (would run a program host-side) |
+| `myrepo fetch --depth 1` | `REJECT` (value must ride the same token) |
 | `-R` remote forwarding | refused by `restrict` |
 
 `-R` and not `-L`/`-D`: only a remote forward is refusable at request time, so

@@ -834,3 +834,47 @@ identity never get written. It fails silently — the command still runs, just
 wrong. Build the string into a variable first, then put the variable in the array.
 Caught by a unit test asserting on `$a[4]`, which is the argument for asserting on
 argv *elements* rather than on `($a -join ' ')`: the joined form hides it.
+
+## P11 — git-option passthrough: what `--recurse-submodules` does and does not reach
+
+Probed while adding the per-verb git-option allowlist to `sbx sync` (both rungs).
+The question that decided the shape of the allowlist: does letting the container
+ask for `pull --recurse-submodules` hand it a new host-exec path?
+
+**Probe** (git **2.39.5**, Debian bookworm-slim, in-container; re-run host-side
+before trusting it on 2.52). A superproject with a local-path submodule, cloned
+so the clone stands in for an agent-writable workspace repo. In the clone's
+`.git/config` — which the agent owns — set the documented exec form:
+
+```sh
+git config submodule.sub.update '!touch /tmp/PWNED'
+git pull --recurse-submodules            # under the sbx -c pins
+```
+
+**Result: not reached.** `pull` reports `Submodule path 'sub': checked out …` and
+`/tmp/PWNED` never appears — `builtin/pull.c` passes `--checkout` to its internal
+`submodule update`, which overrides `submodule.<name>.update` entirely.
+
+**Control, and it matters:** a plain `git submodule update --recursive` in the
+same repo *does* fire it (`Submodule path 'sub': 'touch /tmp/PWNED …'`). So the
+key is genuinely live and the probe setup is valid — `pull` simply does not take
+that path. No allowlisted verb performs a plain `submodule update`.
+
+`submodule.*.update` was added to `$script:SbxUnsafeGitConfigPatterns` anyway.
+Same reasoning already recorded for `diff.external`: the probe covers one git
+version and one code path, and a denylist that omits a known exec key is worse
+than one that over-matches.
+
+**Second result, from the same run:** with `protocol.file.allow=user` pinned (as
+sbx pins it), a submodule fetch over a *local path* is refused outright —
+`fatal: transport 'file' not allowed` — and the pull exits non-zero rather than
+proceeding. That is the pin working as designed, but it means
+`--recurse-submodules` cannot serve a workspace repo whose submodules are local
+paths. Ordinary ssh/https submodules are unaffected.
+
+**Design consequence.** The allowlist is a per-verb list of `--flag[=value]`
+tokens with the value on the *same* token, and no positionals — see
+`$script:SbxSyncOptions` and docs/SYNC.md. That shape, not the list, is what puts
+`--upload-pack=` / `--receive-pack=` / `--exec=` out of reach: all three run a
+program on the host when the remote is a local path, which the container can
+arrange by editing `remote.origin.url`.

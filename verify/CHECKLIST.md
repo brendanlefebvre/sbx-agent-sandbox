@@ -24,6 +24,12 @@ Run on Windows (wslc) unless marked; re-run the mirrored items on macOS.
    only added projects; no `C:` anywhere.
 7. **sync:** `sbx sync <name> fetch` (NAS-remoted repo) succeeds host-side;
    `git fetch` INSIDE the container fails (no keys) — confirming c-lite.
+7a. **sync options:** `sbx sync <name> fetch --prune --tags` runs (the options
+   reach git, after the verb); `sbx sync <name> pull --recurse-submodules`
+   behaves as plain `pull` on a repo without submodules; and
+   `sbx sync <name> push --force` is refused with `option '--force' is not
+   allowed for push`, git never invoked. Also `sbx --tab sync <name> push` →
+   `'sync' takes no sbx options`.
 8. **scratch:** `sbx scratch` → throwaway, `--rm` cleanup verified via
    `sbx ls` after exit; no `/work` inside. A SECOND consecutive scratch has an
    EMPTY `/resume` menu (per-run `<container>-proj` volume isolates it from hub
@@ -54,10 +60,17 @@ you opt in. After `sbx sync-setup --address <addr>` + `sbx rebuild`:
     against a scratch branch actually lands on the remote.
 13. **Name inference:** `sbx sync push` from `/work/<name>` targets `<name>`;
     from `/work` (hub cwd) it refuses and asks you to name a project.
+13a. **Options over the wire:** `sbx sync fetch --prune` prints
+    `sbx-sync-exec: RUN <name> fetch --prune` and then `OK` with the same suffix,
+    and `sbx sync pull --rebase` works from a project dir.
 14. **Negatives, from inside the container** — each must be refused, not run:
-    `sbx sync clone`, `sbx sync ../secret push`, `ssh -i ~/.ssh/id_sbx_sync
-    <user>@<addr> "myrepo push --force"`, and a bare `ssh … <user>@<addr>` (no
-    shell). For forwarding use a **remote** forward,
+    `sbx sync clone`, `sbx sync ../secret push`, `sbx sync push --force`,
+    `sbx sync fetch --upload-pack=/tmp/x`, `sbx sync fetch --depth 1` (value on a
+    separate token → `same token` reason), `ssh -i ~/.ssh/id_sbx_sync
+    <user>@<addr> "myrepo push --force"`, `ssh … <user>@<addr> "myrepo push; sh"`
+    (the shape gate replaced the old two-token count — this must still REJECT),
+    `ssh … <user>@<addr> "myrepo push origin main"`, and a bare
+    `ssh … <user>@<addr>` (no shell). For forwarding use a **remote** forward,
     `ssh -R 19999:127.0.0.1:22 -i ~/.ssh/id_sbx_sync <user>@<addr> "myrepo fetch"`,
     which must report `remote port forwarding failed` / `administratively
     prohibited`. Not `-L`/`-D`: those are client-side listeners until something

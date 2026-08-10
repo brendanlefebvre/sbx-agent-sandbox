@@ -376,12 +376,25 @@ try {
         $ok = ($r.Exit -eq 0) -and ($r.Output -match 'sbx-sync-exec: OK')
         Add-Result "allow:$op" $ok "exit $($r.Exit): $(Get-LastLine $r.Output)"
     }
+    # An allowlisted option must reach git AND be echoed back, so a run whose
+    # effect depended on the option can be told apart from a bare one in the log.
+    $r = Invoke-ContainerSsh -Addr $reachable -RemoteCmd 'myrepo fetch --prune' -Art $art
+    Add-Result 'allow:fetch --prune' `
+        (($r.Exit -eq 0) -and ($r.Output -match 'sbx-sync-exec: OK myrepo fetch --prune')) `
+        "exit $($r.Exit): $(Get-LastLine $r.Output)"
     $deny = @(
-        @{ n='deny:clone';     c='myrepo clone' },
-        @{ n='deny:force';     c='myrepo push --force' },
-        @{ n='deny:traversal'; c='../secret push' },
-        @{ n='deny:ghost';     c='ghost push' },
-        @{ n='deny:shell';     c='myrepo; sh' }
+        @{ n='deny:clone';        c='myrepo clone' },
+        @{ n='deny:force';        c='myrepo push --force' },
+        @{ n='deny:traversal';    c='../secret push' },
+        @{ n='deny:ghost';        c='ghost push' },
+        @{ n='deny:shell';        c='myrepo; sh' },
+        # The option allowlist replaced the old exactly-two-tokens rule, which
+        # was itself the anti-injection guard. These four are what that rule used
+        # to catch by counting; they must now fail on their CONTENT.
+        @{ n='deny:shell-after-option'; c='myrepo push --quiet; sh' },
+        @{ n='deny:positional';         c='myrepo push origin main' },
+        @{ n='deny:upload-pack';        c='myrepo fetch --upload-pack=sh' },
+        @{ n='deny:split-value';        c='myrepo fetch --depth 1' }
     )
     foreach ($d in $deny) {
         $r = Invoke-ContainerSsh -Addr $reachable -RemoteCmd $d.c -Art $art

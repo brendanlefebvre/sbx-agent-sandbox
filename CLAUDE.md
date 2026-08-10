@@ -70,7 +70,10 @@ for the implementation plan.
   host-side, no keys in the container. *c-heavy* (opt-in, `sbx sync-setup`): a
   dedicated container key pinned `restrict,command="…sbx-sync-exec.ps1…"` lets agents
   trigger the same three verbs themselves. Both go through ONE validator
-  (`Resolve-SbxSyncRequest`) — never add a second allowlist. Read `docs/SYNC.md`
+  (`Resolve-SbxSyncRequest`), which holds both allowlists — the three verbs and
+  the per-verb git options (`$script:SbxSyncOptions`; `--flag[=value]` only, value
+  on the same token, no positionals). Extend those tables; never add a second
+  validator, and never filter in the in-container client. Read `docs/SYNC.md`
   ("Security model, and its limits") and `docs/FINDINGS.md` P8 before touching
   either: host-side git runs in an
   agent-writable repo and executes hooks and config-named programs, so

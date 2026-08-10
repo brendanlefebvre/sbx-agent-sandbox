@@ -7,7 +7,7 @@ run the *same* host-side git through the *same* validator; they differ only in
 | | **c-lite** (default) | **c-heavy** (opt-in, `sbx sync-setup`) |
 |---|---|---|
 | Who runs it | you, on the host | an agent, from inside the sandbox |
-| Command | `sbx sync <name> <op>` | `sbx sync [<name>] <op>` in the container |
+| Command | `sbx sync <name> <op> [git options]` | `sbx sync [<name>] <op> [git options]` in the container |
 | Container holds a key | no | yes — a dedicated one, pinned to a forced command |
 | Review gate | **yes** — nothing leaves without you | **no**, deliberately surrendered |
 
@@ -26,7 +26,8 @@ restrict,command="pwsh -NoProfile -File /path/to/sbx-sync-exec.ps1 -WorkspaceDir
 would otherwise be a tunnel around the whole design). `command=` means a
 connection with that key runs *only* `sbx-sync-exec.ps1`, whatever the client
 asks for — the request survives as `SSH_ORIGINAL_COMMAND`, which the validator
-requires to be exactly two tokens, `<project> <push|pull|fetch>`.
+requires to be `<project> <push|pull|fetch>` followed by nothing but
+allowlisted git options (see [Git options](#git-options)).
 
 So the key buys three verbs against direct children of the workspace. It does not
 buy a shell, other repos on the host, or the reach of your own SSH keys — which
@@ -116,7 +117,61 @@ branch on them without parsing a stack trace:
 
 `RUN` without a following `OK` or `FAILED` means the connection died mid-operation
 — distinguishable from a key that never got in, which produces no line at all.
-Exit status is `0` / `2` / `3` for OK / REJECT / FAILED.
+Exit status is `0` / `2` / `3` for OK / REJECT / FAILED. When options were passed,
+`RUN`/`OK` echo them — they have cleared the allowlist by then, so the line the
+human reads says what actually ran.
+
+## Git options
+
+The three bare verbs are not enough in practice: `pull --recurse-submodules`,
+`pull --rebase`, `fetch --prune` are ordinary working requests, and a sync that
+can't express them just gets bypassed. So both rungs accept a **per-verb
+allowlist** of git options — one list, in `Resolve-SbxSyncRequest`, so what an
+agent may ask for is exactly what your own command allows:
+
+| Verb | Options |
+|---|---|
+| `pull` | `--rebase` `--no-rebase` `--ff` `--no-ff` `--ff-only` `--autostash` `--no-autostash` `--recurse-submodules[=yes\|no\|on-demand]` `--no-recurse-submodules` `--tags` `--no-tags` `--prune` `--quiet` `--verbose` |
+| `fetch` | `--all` `--prune` `--prune-tags` `--tags` `--no-tags` `--force` `--unshallow` `--dry-run` `--depth=<n>` `--deepen=<n>` `--recurse-submodules[=yes\|no\|on-demand]` `--no-recurse-submodules` `--quiet` `--verbose` |
+| `push` | `--dry-run` `--tags` `--follow-tags` `--atomic` `--recurse-submodules=<check\|on-demand\|no>` `--quiet` `--verbose` |
+
+```text
+sbx sync myrepo pull --recurse-submodules --rebase       # host
+agent@sbx-main:/work/myrepo$ sbx sync pull --rebase      # container
+```
+
+Two shape rules do most of the security work, before the list is consulted:
+
+- **`--flag` or `--flag=value` only.** No positionals, so no remote name, no
+  refspec and no URL can reach git — `push` still goes exactly where the repo's
+  own config points (already an accepted risk, see below) and no further.
+- **A value rides on the same token as its flag.** Nothing consumes the next
+  token, so `--depth 1` is refused in favour of `--depth=1` and a value can never
+  be read as a flag depending on how many tokens were supplied.
+
+Together they make `--upload-pack=`, `--receive-pack=` and `--exec=` unreachable
+as well as unlisted — those three run a program *on this host* whenever the
+remote is a local path, which the container can arrange. Short flags are refused
+outright (no `-o`, no clustering), and a request carries at most 8 options.
+
+Three absences are deliberate:
+
+- **No `--force` / `--force-with-lease`.** A c-heavy agent can fetch first, which
+  satisfies a lease, so the lease form buys little over plain force in an
+  autonomous setting. Force-push from a host shell instead.
+- **No `--prune` on push** (it is fine on `pull`/`fetch`, where it only tidies
+  local remote-tracking refs). On `push` it *deletes remote branches* with no
+  local counterpart, over whichever refs `remote.<name>.push` names — and that
+  key lives in a config the container can write. Same destructive class as
+  `--force`, excluded for the same reason.
+- **No `--set-upstream`.** It needs the `origin <branch>` positionals the shape
+  rules refuse, so allowing it would only produce a confusing git error. Set the
+  upstream once from the host; ordinary `push` works from then on.
+
+Options land *after* the verb in git's argv, where they are the subcommand's own —
+they can never be read as, or displace, the `-c` hardening pins in front of them.
+An option that isn't on the list refuses the whole request; nothing is silently
+dropped.
 
 ## Troubleshooting
 
@@ -140,8 +195,11 @@ validator — the fastest way to qualify a new host (see
 **Read this before enabling c-heavy on a machine where host compromise matters.**
 
 The SSH surface is tight and was probed end to end (FINDINGS P7): the three verbs,
-the workspace-child guard, and every negative (extra args, traversal, non-workspace
-repo, shell, forwarding) hold.
+the workspace-child guard, and every negative (traversal, non-workspace repo,
+shell, forwarding) hold. The forced command once required *exactly two tokens*,
+and that count was itself the anti-injection guard; git options replaced it with
+the shape gate above, which refuses the same `; sh` / `origin main` / `--force`
+requests on their content rather than on their number.
 
 The **git** surface is the harder half, and it is not the SSH layer's problem.
 Host-side git runs *inside a repository the agent can write*, and git is not a
@@ -199,6 +257,15 @@ Residual risk, stated plainly:
   file. c-heavy means an agent can push your repo's contents to a remote of its
   choosing. This is inherent to autonomous sync, not a bug in the transport —
   it is the review gate you gave up.
+- **`--recurse-submodules` acts on URLs the agent also controls**, since
+  `.gitmodules` lives in the repo. Under the tier-1 pins that is bounded: `ext::`
+  and `git://` are refused outright, and `protocol.file.allow=user` blocks a
+  local-path submodule (a fetch that needs one fails rather than proceeding). What
+  remains is that a fetch may open an ssh/https connection to a host of the
+  agent's choosing — no repo content leaves that way, but the connection is made
+  with your credentials in reach. Probed (FINDINGS P11): it does **not** reach
+  `submodule.<name>.update = !cmd`, because `pull` passes `--checkout`
+  explicitly; that key is on the advisory denylist regardless.
 - The key is unencrypted on disk under `~/.sbx/sync`, by necessity. Its authority
   is bounded by the forced command, not by secrecy.
 

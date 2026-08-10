@@ -58,7 +58,7 @@ project you've added, instead of a fresh throwaway container per repo.
 | `sbx`                   | Same, for the `hub` session at `/work` (cross-project orchestration vantage point).             |
 | `sbx ls`                | Workspace projects: name, original host path, whether a tmux session is live.                   |
 | `sbx rm <name>`         | Kill the project's tmux session; move the repo back to its origin; remove the link.              |
-| `sbx sync <name> <op>`  | **Host-side** git `push`/`pull`/`fetch` in the project's workspace dir, with host credentials.   |
+| `sbx sync <name> <op> [git options]`  | **Host-side** git `push`/`pull`/`fetch` in the project's workspace dir, with host credentials. Options come from a per-verb allowlist (`docs/SYNC.md`). |
 | `sbx sync-setup --address <addr>` | Opt in to **c-heavy**: provision the container's dedicated key so agents can trigger those same three verbs themselves. `--user`/`--port` if they differ from your login/22, `--authorized-keys <path>` to force which file gets written, `--print-only`, `--remove`. See `docs/SYNC.md`. |
 | `sbx gh-setup --token-file <path>` | Opt in to **c-gh**: store a fine-grained GitHub PAT (Contents + Pull requests, scoped to chosen repos) for the container's `gh`/git to use. `--remove`. See `docs/GH.md`. |
 | `sbx pr check`          | **In-container only.** Read-only: list CodeRabbit's review comments on the current branch's PR. `gh pr create --fill` / `git push` / `gh pr comment` cover the rest directly, already authenticated. See `docs/GH.md`. |
@@ -156,10 +156,11 @@ blocked/done signals — is the stage-8 material in `docs/ROADMAP.md`.
 
 By default the container never holds SSH keys or git credentials.
 `sbx sync <name> push|pull|fetch` runs the git operation **host-side**, in the project's
-workspace directory, with your host credentials — exactly those three verbs, nothing
-wider. Agents inside the sandbox can commit freely; only a host-side `sbx sync` moves
-anything to or from a remote, which is a deliberate review gate on everything leaving
-the machine.
+workspace directory, with your host credentials — exactly those three verbs, plus a
+per-verb allowlist of git options (`--rebase`, `--recurse-submodules`, `--prune`, …;
+the full list, and what is deliberately left off it, is in `docs/SYNC.md`). Agents
+inside the sandbox can commit freely; only a host-side `sbx sync` moves anything to or
+from a remote, which is a deliberate review gate on everything leaving the machine.
 
 **Opting out of the gate (c-heavy).** `sbx sync-setup --address <addr>` gives the
 container a *dedicated* key whose `authorized_keys` line is pinned
