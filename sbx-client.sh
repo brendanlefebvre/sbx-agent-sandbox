@@ -12,10 +12,12 @@ case "${1:-}" in
   sync) shift ;;
   pr) shift; cmd="pr" ;;
   ""|-h|--help|help)
-    echo "usage: sbx sync [<project>] <push|pull|fetch>" >&2
+    echo "usage: sbx sync [<project>] <push|pull|fetch> [git options]" >&2
     echo "       sbx pr check" >&2
     echo "  sync runs the git op HOST-side in the project workspace dir, with host" >&2
     echo "  credentials. Project defaults to the one containing your cwd." >&2
+    echo "  git options are limited to a per-verb allowlist enforced on the host" >&2
+    echo "  (e.g. --rebase, --recurse-submodules, --prune); see docs/SYNC.md." >&2
     echo "  pr check lists CodeRabbit's review comments on the current branch's" >&2
     echo "  PR (c-gh) - see docs/GH.md. Everything else PR-related (create," >&2
     echo "  push, reply) is plain 'gh'/'git', already authenticated - no wrapper" >&2
@@ -40,11 +42,23 @@ if [ "${cmd:-}" = "pr" ]; then
     *) die "usage: sbx pr check" ;;
   esac
 fi
-case $# in
-  1) name=""; op="$1" ;;
-  2) name="$1"; op="$2" ;;
-  *) die "usage: sbx sync [<project>] <push|pull|fetch>" ;;
-esac
+is_op() { case "$1" in push|pull|fetch) return 0 ;; *) return 1 ;; esac; }
+# Which of the first two tokens is the verb decides where the project name went.
+# Testing $2 FIRST keeps `sbx sync pull pull` working for a project called
+# "pull": with an explicit name present, the second token is the verb.
+if [ $# -ge 2 ] && is_op "$2"; then
+  name="$1"; op="$2"; shift 2
+elif [ $# -ge 1 ] && is_op "$1"; then
+  name=""; op="$1"; shift
+else
+  die "usage: sbx sync [<project>] <push|pull|fetch> [git options]"
+fi
+# Whatever remains is git options. They are NOT filtered here - this client is
+# not the boundary (see the header) and a second allowlist that drifted from the
+# host's would be worse than none. sbx-sync-exec rejects anything off the list
+# with a REJECT line.
+opts=""
+for a in "$@"; do opts="$opts $a"; done
 # Provisioning first: otherwise an unconfigured sandbox complains about the
 # cwd, sending you to look in entirely the wrong place.
 [ -f "$conf" ] || die "c-heavy sync is not provisioned - run 'sbx sync-setup --address ...' on the host, then 'sbx rebuild'"
@@ -61,9 +75,10 @@ port=$(sed -n 's/^port=//p' "$conf" | head -1)
 [ -n "$host" ] || die "no host= in $conf"
 [ -n "$user" ] || die "no user= in $conf"
 [ -n "$port" ] || port=22
-# The remote command is fixed two tokens; sbx-sync-exec re-validates both.
+# The remote command is "<name> <op> [options]" as ONE argv element; the forced
+# command re-validates every token of it, so nothing here is trusted.
 # IdentitiesOnly/IdentityAgent: offer the sync key and NOTHING else. -i alone
 # only appends to the candidate list, so any other key reachable from this
 # container could authenticate instead - landing on a session with no
 # restrict and no forced command, i.e. a shell on the host.
-exec ssh -o BatchMode=yes -o ConnectTimeout=10 -o IdentitiesOnly=yes -o IdentityAgent=none -i "$key" -p "$port" "$user@$host" "$name $op"
+exec ssh -o BatchMode=yes -o ConnectTimeout=10 -o IdentitiesOnly=yes -o IdentityAgent=none -i "$key" -p "$port" "$user@$host" "$name $op$opts"

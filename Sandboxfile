@@ -108,8 +108,8 @@ RUN printf '\nHost *\n    StrictHostKeyChecking accept-new\n' >> /etc/ssh/ssh_co
        > /usr/local/bin/sbx-entrypoint \
  && chmod +x /usr/local/bin/sbx-entrypoint
 
-# In-container sbx client: `sbx sync <op>` (c-heavy, unchanged — see the sync
-# section above) and `sbx pr create`/`sbx pr respond` (c-gh, see docs/GH.md).
+# In-container sbx client: `sbx sync <op> [git options]` (c-heavy, unchanged —
+# see the sync section above) and `sbx pr check` (c-gh, see docs/GH.md).
 # Neither is a security boundary in the SSH-forced-command sense; sync's is the
 # host-side validator at the far end, and gh's is the PAT's own github.com
 # scopes — this script is convenience routing in both cases.

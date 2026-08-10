@@ -8,12 +8,13 @@
 #
 # so a connection with that key gets neither a shell nor forwarding - only this
 # script, with the client's requested command arriving in SSH_ORIGINAL_COMMAND as
-# "<name> <op>". Everything else the client passes on its command line is
-# discarded by OpenSSH.
+# "<name> <op> [git options]". Everything else the client passes on its command
+# line is discarded by OpenSSH.
 #
 # The validation itself lives in sbx.ps1 (Resolve-SbxSyncCommand ->
 # Resolve-SbxSyncRequest), shared verbatim with the human-run `sbx sync` - one
-# allowlist, one workspace-child guard, no chance of the two drifting apart.
+# verb allowlist, one git-option allowlist, one workspace-child guard, no chance
+# of any of them drifting apart.
 # See docs/SYNC.md, ROADMAP item 1, and FINDINGS P7 for the probe results.
 
 [CmdletBinding()]
@@ -39,14 +40,20 @@ if (-not $decision.Ok) {
 # Emitted before the work so a client that hangs or dies mid-git can still tell
 # "the forced command fired" from "the key never got in" - the two failure modes
 # look identical from the container otherwise.
-[Console]::Error.WriteLine("sbx-sync-exec: RUN $($decision.Name) $($decision.Operation)")
+#
+# The options are echoed because they have PASSED the allowlist - they are drawn
+# from a fixed ASCII set, not arbitrary request text - and because a sync whose
+# effect depends on them should say so in the line the human reads.
+$suffix = if ($decision.Options.Count) { ' ' + ($decision.Options -join ' ') } else { '' }
+[Console]::Error.WriteLine("sbx-sync-exec: RUN $($decision.Name) $($decision.Operation)$suffix")
 try {
     # Locked: concurrent agents (and the human's own `sbx sync`) serialize per repo.
     # -WorkspaceDir is not decoration: Invoke-SbxSyncGit re-checks containment once
     # it holds the lock, because the container can swap the validated directory for
     # a link in the window between. It must measure against the workspace this
     # request was validated in.
-    Invoke-SbxSyncGit -Dir $decision.Dir -Operation $decision.Operation -WorkspaceDir $WorkspaceDir
+    Invoke-SbxSyncGit -Dir $decision.Dir -Operation $decision.Operation `
+                      -Options $decision.Options -WorkspaceDir $WorkspaceDir
 }
 catch {
     # A PowerShell error record over SSH is a wall of ANSI-coloured stack trace the
@@ -57,5 +64,5 @@ catch {
     exit 3
 }
 # Only now: OK means the git operation actually completed.
-[Console]::Error.WriteLine("sbx-sync-exec: OK $($decision.Name) $($decision.Operation)")
+[Console]::Error.WriteLine("sbx-sync-exec: OK $($decision.Name) $($decision.Operation)$suffix")
 exit 0
