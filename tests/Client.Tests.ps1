@@ -14,9 +14,17 @@ BeforeAll {
         if (-not $IsWindows) { & chmod +x $Path }
     }
 
+    # No -Cwd knob, deliberately. The client infers the project from a cwd under
+    # `/work/<name>`, and that path exists only inside the container - a host
+    # running this suite (Windows, or a mac) has no /work to stand in, so any
+    # cwd-driven assertion would pass or fail depending on where it ran. The
+    # parse side is covered without it: 'accepts a lone verb followed by options'
+    # asserts through the unprovisioned error, which fires after the parse and
+    # before the cwd is consulted. The real cwd inference is verified live
+    # instead, by CHECKLIST item 13.
     function Invoke-Client {
         param([string[]]$ClientArgs = @(), [string]$Conf, [string]$Key,
-              [string]$Cwd, [string]$FakeSshDir)
+              [string]$FakeSshDir)
         $env:SBX_SYNC_CONF = $Conf
         $env:SBX_SYNC_KEY  = $Key
         $old = $env:PATH

@@ -20,6 +20,20 @@ f2d4d35 docs(sync): document the git-option allowlist and probe P11
 
 ## Blocking, before this is trustworthy
 
+0. **Get the branch onto the host first — nothing below works without it.**
+   Two *separate* copies of this code run, and the image rebuild only refreshes
+   one of them:
+   - the **in-container client** (`sbx-client.sh` → `/usr/local/bin/sbx`), which
+     ships in the image → fixed by item 1;
+   - the **host-side validator** (`sbx.ps1` + `sbx-sync-exec.ps1`), which runs
+     from the host's own checkout — the one `$PROFILE` dot-sources and the one
+     the `authorized_keys` forced command names by absolute path (the `prod`
+     remote, `C:\Users\brend\src\sbx`). An image rebuild does **not** touch it.
+
+   So until the branch is merged and pulled into that checkout, host-side
+   `sbx sync <name> <op> --opt` still runs the OLD validator and will reject
+   every option — which looks exactly like a bug in the new code. Order: land the
+   branch in the prod checkout → rebuild the image → verify.
 1. **Rebuild the image.** `sbx-client.sh` changed, so the in-container `sbx sync`
    is stale until `./rebuild-image.ps1` runs. Test c-heavy from a fresh terminal
    (host terminals still hold the old dot-sourced functions).
@@ -32,6 +46,13 @@ f2d4d35 docs(sync): document the git-option allowlist and probe P11
    shape gate; they are the regression that matters most.
 3. **Re-run `probes/probe-host.ps1`** — it gained one allow case and four
    negatives for the same reason.
+3a. **Expect to re-pin the sync address before any of 2/3 will run.** From inside
+   `sbx-main` on 2026-08-10, the pinned `host=172.25.96.1` (`~/.sbx/sync/sync.conf`)
+   **timed out** — not refused, timed out, i.e. nothing is listening at that
+   address any more. The WSL vEthernet gateway moves across reboots, so this is
+   the expected decay, not a regression from this branch. Fix with
+   `sbx sync-setup --address <current gateway>` + `sbx rebuild`, and don't spend
+   time on sshd or the ACLs until the address answers.
 
 ## Should do, not blocking
 
@@ -61,8 +82,11 @@ f2d4d35 docs(sync): document the git-option allowlist and probe P11
 - The in-container client deliberately does **not** filter options. It is not the
   boundary, and a second allowlist there could drift from the host's.
 
-## Loose end unrelated to this branch
+## Done since this file was written
 
-`tests/Client.Tests.ps1`'s `Invoke-Client` still declares a `-Cwd` parameter it
-never uses. Pre-existing. It would be worth either implementing (so the cwd
-project-inference path is testable off a real `/work/...`) or deleting.
+- ~~`Invoke-Client`'s unused `-Cwd` parameter~~ — **deleted** (commit below), with
+  a comment recording why it can't be implemented portably: the client infers the
+  project from `/work/<name>`, a path that exists only inside the container, so a
+  cwd-driven assertion would pass or fail depending on which host ran the suite.
+  The parse side is covered by the "lone verb" test; the real inference is
+  CHECKLIST item 13, live.
