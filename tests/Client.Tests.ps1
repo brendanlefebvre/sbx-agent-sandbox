@@ -5,6 +5,15 @@ BeforeAll {
     # Runs the real client under a POSIX shell with the conf/key/PATH it would see
     # in the container. Returns exit code plus both streams, so a test can assert
     # on the message an agent would actually read.
+    # The fakes below are written by [IO.File]::WriteAllText, which leaves them
+    # non-executable. Git Bash on Windows runs them anyway; a POSIX shell does
+    # not, so without this every fake-argv assertion silently fell through to the
+    # REAL ssh/gh when the suite was run on Linux or macOS.
+    function Set-FakeExecutable {
+        param([Parameter(Mandatory)][string]$Path)
+        if (-not $IsWindows) { & chmod +x $Path }
+    }
+
     function Invoke-Client {
         param([string[]]$ClientArgs = @(), [string]$Conf, [string]$Key,
               [string]$Cwd, [string]$FakeSshDir)
@@ -42,6 +51,7 @@ Describe 'sbx-sync-client.sh' -Skip:(-not (Get-Command sh -ErrorAction SilentlyC
         $script:argvLog = Join-Path $script:tmp 'argv.txt'
         [IO.File]::WriteAllText((Join-Path $script:fake 'ssh'),
             "#!/bin/sh`nfor a in `"`$@`"; do echo `"`$a`"; done > '$($script:argvLog -replace '\\','/')'`nexit 0`n")
+        Set-FakeExecutable (Join-Path $script:fake 'ssh')
     }
 
     It 'is valid POSIX shell (the syntax gate the printf form never had)' {
@@ -75,9 +85,10 @@ Describe 'sbx-sync-client.sh' -Skip:(-not (Get-Command sh -ErrorAction SilentlyC
         $r.Out  | Should -BeLike '*sync key missing*'
     }
 
-    It 'rejects more than two arguments rather than passing them on' {
-        # The remote command is a fixed two tokens; extra args are how "push
-        # --force" would try to arrive.
+    It 'rejects a request with no recognisable verb rather than guessing' {
+        # Neither 'b' nor 'a' is push/pull/fetch, so there is no reading of this
+        # under which the first two tokens are <name> <op>. The host would reject
+        # it too - failing here just saves the round trip.
         $r = Invoke-Client -ClientArgs @('sync', 'a', 'b', 'c') -Conf $script:conf -Key $script:key
         $r.Exit | Should -Be 2
         $r.Out  | Should -BeLike '*usage: sbx sync*'
@@ -96,13 +107,41 @@ Describe 'sbx-sync-client.sh' -Skip:(-not (Get-Command sh -ErrorAction SilentlyC
         $argv | Should -Contain 'BatchMode=yes'
     }
 
-    It 'sends the request as ONE fixed two-token remote command' {
+    It 'sends the request as ONE remote command string' {
         Invoke-Client -ClientArgs @('sync', 'myrepo', 'push') -Conf $script:conf `
                       -Key $script:key -FakeSshDir $script:fake | Out-Null
         $argv = @(Get-Content $script:argvLog)
         $argv[-1] | Should -Be 'myrepo push'      # one argv element, not two
         $argv     | Should -Contain 'me@10.0.0.1'
         $argv     | Should -Contain '2222'
+    }
+
+    It 'forwards git options into that one string, unfiltered' {
+        # Unfiltered on purpose: a second allowlist here could drift from the
+        # host's, and this client is not the boundary. sbx-sync-exec decides.
+        Invoke-Client -ClientArgs @('sync', 'myrepo', 'pull', '--recurse-submodules', '--rebase') `
+                      -Conf $script:conf -Key $script:key -FakeSshDir $script:fake | Out-Null
+        (@(Get-Content $script:argvLog))[-1] | Should -Be 'myrepo pull --recurse-submodules --rebase'
+    }
+
+    It 'accepts a lone verb followed by options, leaving the project to the cwd' {
+        # With options in play the argument COUNT no longer says whether token 1
+        # is a name or a verb, so `sync fetch --prune` has to be read as the
+        # cwd-inferred form. Asserted through the unprovisioned error, which fires
+        # after the parse and before the cwd is consulted: a usage error would
+        # mean the parse rejected it, and the assertion does not depend on where
+        # the suite happens to be run from.
+        $r = Invoke-Client -ClientArgs @('sync', 'fetch', '--prune') `
+                           -Conf (Join-Path $script:tmp 'nope.conf') -Key $script:key
+        $r.Exit | Should -Be 2
+        $r.Out  | Should -BeLike '*not provisioned*'
+        $r.Out  | Should -Not -BeLike '*usage:*'
+    }
+
+    It 'still reads token 1 as the project when token 2 is the verb, even if the project IS a verb name' {
+        Invoke-Client -ClientArgs @('sync', 'pull', 'push') -Conf $script:conf `
+                      -Key $script:key -FakeSshDir $script:fake | Out-Null
+        (@(Get-Content $script:argvLog))[-1] | Should -Be 'pull push'
     }
 }
 
@@ -134,6 +173,7 @@ Describe 'sbx pr check' -Skip:(-not (Get-Command sh -ErrorAction SilentlyContinu
             "  'pr view --json number -q .number') echo 42 ;;`n" +
             "  *'pulls/42/comments'*) echo 'FAKE-COMMENT-1' ;;`n" +
             "esac`nexit 0`n")
+        Set-FakeExecutable (Join-Path $script:fake 'gh')
     }
 
     It 'lists coderabbit comments without pushing' {
